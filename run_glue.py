@@ -107,7 +107,7 @@ def parse_args(p=argparse.ArgumentParser()):
     p.add_argument("--fewshot", type=int, default=0)
     p.add_argument("--test_model", default=None)
     p.add_argument("--cws_vocab_file", default=None)
-    p.add_argument("--log_interval", type=int, default=20)
+    p.add_argument("--log_interval", type=int, default=10)
     return p.parse_args()
 
 
@@ -537,7 +537,9 @@ def get_best_ckpt(output_dir: Path) -> Path:
     '''
     min_loss = float("inf")
     best_ckpt_dir = None
-    for ckpt_dir in output_dir.glob("ckpt-*"):
+    ckpt_dirs = sorted(output_dir.glob("ckpt-*"))
+    assert len(ckpt_dirs) > 0, "No checkpoints found"
+    for ckpt_dir in ckpt_dirs:
         if not ckpt_dir.is_dir():
             continue
         loss = json.load(open(ckpt_dir / "result.json"))["loss"]
@@ -549,7 +551,7 @@ def get_best_ckpt(output_dir: Path) -> Path:
 
 def test(args):
     # Setup output files
-    output_dir = Path(args.output_dir, args.test_name)
+    output_dir = get_output_dir(args) / args.test_name
     output_dir.mkdir(parents=True, exist_ok=True)
     device = get_device()
     set_seed(args.seed)
