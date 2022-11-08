@@ -1,5 +1,6 @@
 # coding=utf-8
-# Copyright 2018 The Google AI Language Team Authors and The HugginFace Inc. team.
+# Copyright 2018 The Google AI Language Team Authors and
+# The HugginFace Inc. team.
 # Copyright (c) 2020, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,32 +18,32 @@
 import csv
 import os
 import sys
-import json 
+import json
 
 
 def get_subchar_pos(tokens, subchars):
-	'''
-	Return starting index of each subchar in tokens.
-	NOTE: This assumes that the concatenation of tokens is equal to the 
-	concatenation of subchars.
+    '''
+    Return starting index of each subchar in tokens.
+    NOTE: This assumes that the concatenation of tokens is equal to the
+    concatenation of subchars.
 
-	Example:
-	>>> Input:
-	>>> subchars  = ['jin+', 'ti', 'an+', 'ti', 'an+', 'qi+', 'hen+', 'hao+']
-	>>> tokens    = ['jin', '+', 'tian+', 'tian+qi', '+', 'hen+hao+']
-	>>> token_pos = [0, 2, 2, 3, 3, 3, 5, 5]
-	'''
-	pos = [None] * len(subchars)
-	len_t = 0
-	len_s = 0
-	j = -1  # idx of last token that was added to len_t
-	for i, subchar in enumerate(subchars):
-		while len_t <= len_s:
-			j += 1
-			len_t += len(tokens[j])
-		pos[i] = j
-		len_s += len(subchar)
-	return pos
+    Example:
+    >>> Input:
+    >>> subchars  = ['jin+', 'ti', 'an+', 'ti', 'an+', 'qi+', 'hen+', 'hao+']
+    >>> tokens    = ['jin', '+', 'tian+', 'tian+qi', '+', 'hen+hao+']
+    >>> token_pos = [0, 2, 2, 3, 3, 3, 5, 5]
+    '''
+    pos = [None] * len(subchars)
+    len_t = 0
+    len_s = 0
+    j = -1  # idx of last token that was added to len_t
+    for i, subchar in enumerate(subchars):
+        while len_t <= len_s:
+            j += 1
+            len_t += len(tokens[j])
+        pos[i] = j
+        len_s += len(subchar)
+    return pos
 
 
 class InputExample(object):
@@ -95,16 +96,16 @@ class DataProcessor(object):
     def get_labels(self):
         """Gets the list of labels for this data set."""
         raise NotImplementedError()
-    
-    @classmethod 
+
+    @classmethod
     def _read_json(cls, input_file):
         examples = []
-        with open(input_file, "r") as f:
+        with open(input_file, "r", encoding='utf8') as f:
             data = f.readlines()
         for line in data:
             line = json.loads(line.strip())
             examples.append(line)
-        return examples 
+        return examples
 
     @classmethod
     def _read_tsv(cls, input_file, quotechar=None, skip_header=False):
@@ -129,7 +130,7 @@ class TnewsProcessor(DataProcessor):
             self._read_json(os.path.join(data_dir, "train.json")),
             "train"
         )
-    
+
     def get_dev_examples(self, data_dir):
         return self._create_examples(
             self._read_json(os.path.join(data_dir, "dev.json")),
@@ -141,10 +142,10 @@ class TnewsProcessor(DataProcessor):
             self._read_json(os.path.join(data_dir, "test.json")),
             "test"
         )
-    
+
     def get_labels(self):
         return ["100", "101", "102", "103", "104", "106", "107", "108", "109", "110", "112", "113", "114", "115", "116"]
-    
+
     def _create_examples(self, lines, set_type):
         examples = []
         for (i, line) in enumerate(lines):
@@ -166,25 +167,25 @@ class IflytekProcessor(DataProcessor):
             self._read_json(os.path.join(data_dir, "train.json")),
             "train"
         )
-    
+
     def get_dev_examples(self, data_dir):
         return self._create_examples(
             self._read_json(os.path.join(data_dir, "dev.json")),
             "dev"
         )
-    
+
     def get_test_examples(self, data_dir):
         return self._create_examples(
             self._read_json(os.path.join(data_dir, "test.json")),
             "test"
         )
-    
+
     def get_labels(self):
         labels = []
         for i in range(119):
             labels.append(str(i))
         return labels
-    
+
     def _create_examples(self, lines, set_type):
         examples = []
         for (i, line) in enumerate(lines):
@@ -231,8 +232,11 @@ class WscProcessor(DataProcessor):
             query_idx = target['span1_index']
             pronoun = target['span2_text']
             pronoun_idx = target['span2_index']
-            assert text_a[pronoun_idx: (pronoun_idx + len(pronoun))] == pronoun, "pronoun: {}".format(pronoun)
-            assert text_a[query_idx: (query_idx + len(query))] == query, "query: {}".format(query)
+            assert text_a[pronoun_idx: (
+                pronoun_idx + len(pronoun))
+            ] == pronoun, "pronoun: {}".format(pronoun)
+            assert text_a[query_idx: (
+                query_idx + len(query))] == query, "query: {}".format(query)
             if pronoun_idx > query_idx:
                 text_a_list.insert(query_idx, "_")
                 text_a_list.insert(query_idx + len(query) + 1, "_")
@@ -248,7 +252,8 @@ class WscProcessor(DataProcessor):
             # label = str(line['label']) if set_type != 'test' else 'true'
             label = str(line['label'])
             examples.append(
-                InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+                InputExample(
+                    guid=guid, text_a=text_a, text_b=text_b, label=label))
         return examples
 
 
@@ -284,7 +289,8 @@ class AfqmcProcessor(DataProcessor):
             # label = str(line['label']) if set_type != 'test' else "0"
             label = str(line['label'])
             examples.append(
-                InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+                InputExample(
+                    guid=guid, text_a=text_a, text_b=text_b, label=label))
         return examples
 
 
@@ -360,7 +366,6 @@ class OcnliProcessor(DataProcessor):
         return examples
 
 
-
 class BqProcessor(DataProcessor):
     """Processor for the BQ data set (CLUE version)."""
 
@@ -431,8 +436,6 @@ class ThucnewsProcessor(DataProcessor):
             examples.append(
                 InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
         return examples
-
-
 
 
 class MrpcProcessor(DataProcessor):
@@ -584,7 +587,7 @@ class Sst2Processor(DataProcessor):
 
 
 def convert_examples_to_features_two_level_embeddings(
-    examples, label_list, max_seq_length, tokenizer):
+        examples, label_list, max_seq_length, tokenizer):
     """Loads a data file into a list of `InputBatch`s."""
 
     label_map = {label: i for i, label in enumerate(label_list)}
@@ -615,7 +618,8 @@ def convert_examples_to_features_two_level_embeddings(
             # Account for [CLS], [SEP], [SEP] with "- 3"
             _truncate_seq_pair(tokens_a, tokens_b, max_seq_length - 3)
             _truncate_seq_pair(subchars_a, subchars_b, max_seq_length - 3)
-            _truncate_seq_pair(subchar_pos_a, subchar_pos_b, max_seq_length - 3)
+            _truncate_seq_pair(subchar_pos_a, subchar_pos_b,
+                               max_seq_length - 3)
         else:
             # Account for [CLS] and [SEP] with "- 2"
             # if len(tokens_a) > max_seq_length - 2:
@@ -663,7 +667,8 @@ def convert_examples_to_features_two_level_embeddings(
             segment_ids += [1] * (len(subchars_b) + 1)
             len_tokens = len(tokens)
             tokens += tokens_b + ['[SEP]']
-            subchar_pos += [x + len_tokens for x in subchar_pos_b] + [len(tokens) - 1]
+            subchar_pos += [x + len_tokens for x in subchar_pos_b] + \
+                [len(tokens) - 1]
             # print(subchar_pos_b)
             # print(subchars)
             # print(subchar_pos)
@@ -679,7 +684,6 @@ def convert_examples_to_features_two_level_embeddings(
         #     segment_ids += [1] * (len(tokens_b) + 1)
 
         # input_ids = tokenizer.convert_tokens_to_ids(tokens)
-
 
         input_ids = tokenizer.convert_tokens_to_ids(subchars)
         token_ids = tokenizer.convert_tokens_to_ids(tokens)
@@ -728,8 +732,8 @@ def convert_examples_to_features_two_level_embeddings(
                           token_ids=token_ids,
                           pos_left=pos_left,
                           pos_right=pos_right,
-                )
-            )
+                          )
+        )
     return features, label_map
 
 
@@ -750,7 +754,7 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
         # or set to 'neutral'?
         if example.label == '-':
             example.label = 'neutral'
-            
+
         if char_by_char:
             tokens_a = sum([[c] for c in example.text_a], [])
         else:
@@ -810,7 +814,7 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
                           segment_ids=segment_ids,
                           label_id=label_id,
                           )
-            )
+        )
     return features
 
 

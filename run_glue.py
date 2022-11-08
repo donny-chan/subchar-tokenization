@@ -86,8 +86,8 @@ def parse_args(p=argparse.ArgumentParser()):
     # Other parameters
     p.add_argument("--mode", default="train_test")
     p.add_argument("--max_seq_length", default=128, type=int)
-    p.add_argument("--train_batch_size", default=64, type=int)
-    p.add_argument("--eval_batch_size", default=128, type=int)
+    p.add_argument("--train_batch_size", default=256, type=int)
+    p.add_argument("--eval_batch_size", default=1024, type=int)
     p.add_argument("--lr", default=2e-5, type=float)
     p.add_argument("--epochs", default=-1, type=int)
     p.add_argument(
