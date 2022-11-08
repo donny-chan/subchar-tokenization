@@ -28,14 +28,12 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
+from sklearn.metrics import f1_score
 
 import consts
 import modeling
 from optimization import BertAdam
 from schedulers import LinearWarmUpScheduler
-
-# from apex import amp
-from sklearn.metrics import f1_score
 from utils import is_main_process, auto_tokenizer, set_seed
 from processors.glue import PROCESSORS, convert_examples_to_features
 
@@ -77,7 +75,7 @@ def parse_args(p=argparse.ArgumentParser()):
     p.add_argument("--dev_dir", required=True)
     p.add_argument("--test_dir", required=True)
     p.add_argument("--task_name", required=True)
-    p.add_argument("--output_dir", required=True)
+    p.add_argument("--output_dir")
     p.add_argument("--init_ckpt", required=True)
     p.add_argument("--tokenizer_name", required=True)
     p.add_argument("--config_file", required=True)
@@ -86,7 +84,7 @@ def parse_args(p=argparse.ArgumentParser()):
     # Other parameters
     p.add_argument("--mode", default="train_test")
     p.add_argument("--max_seq_length", default=128, type=int)
-    p.add_argument("--train_batch_size", default=256, type=int)
+    p.add_argument("--train_batch_size", default=128, type=int)
     p.add_argument("--eval_batch_size", default=1024, type=int)
     p.add_argument("--lr", default=2e-5, type=float)
     p.add_argument("--epochs", default=-1, type=int)
@@ -109,17 +107,16 @@ def parse_args(p=argparse.ArgumentParser()):
     p.add_argument("--fewshot", type=int, default=0)
     p.add_argument("--test_model", default=None)
     p.add_argument("--cws_vocab_file", default=None)
-    p.add_argument("--log_interval", type=int, default=40)
+    p.add_argument("--log_interval", type=int, default=20)
     return p.parse_args()
 
 
 def init_optimizer_and_amp(
-    model,
-    lr,
+    model: torch.nn.Module,
+    lr: float,
     loss_scale,
-    warmup_proportion,
-    num_train_optimization_steps,
-    use_fp16,
+    warmup_proportion: float,
+    num_train_optimization_steps: int,
 ):
     param_optimizer = list(model.named_parameters())
     no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
@@ -142,51 +139,18 @@ def init_optimizer_and_amp(
         },
     ]
     optimizer, scheduler = None, None
-    if use_fp16:
-        raise NotImplementedError("fp16 not supported")
-        # try:
-        #     from apex.optimizers import FusedAdam
-        # except ImportError:
-        #     raise ImportError("Please install apex from "
-        #                       "https://www.github.com/nvidia/apex to use "
-        #                       "distributed and fp16 training.")
-
-        # if num_train_optimization_steps is not None:
-        #     optimizer = FusedAdam(
-        #         optimizer_grouped_parameters,
-        #         lr=lr,
-        #         bias_correction=False,
-        #     )
-        # amp_inits = amp.initialize(
-        #     model,
-        #     optimizers=optimizer,
-        #     opt_level="O2",
-        #     keep_batchnorm_fp32=False,
-        #     loss_scale="dynamic" if loss_scale == 0 else loss_scale,
-        # )
-        # model, optimizer = (amp_inits
-        #                     if num_train_optimization_steps is not None else
-        #                     (amp_inits, None))
-        # if num_train_optimization_steps is not None:
-        #     scheduler = LinearWarmUpScheduler(
-        #         optimizer,
-        #         warmup=warmup_proportion,
-        #         total_steps=num_train_optimization_steps,
-        #     )
-    else:
-        print("using fp32")
-        if num_train_optimization_steps is not None:
-            optimizer = BertAdam(
-                optimizer_grouped_parameters,
-                lr=lr,
-                warmup=warmup_proportion,
-                t_total=num_train_optimization_steps,
-            )
-            scheduler = LinearWarmUpScheduler(
-                optimizer,
-                warmup=warmup_proportion,
-                total_steps=num_train_optimization_steps,
-            )
+    if num_train_optimization_steps is not None:
+        optimizer = BertAdam(
+            optimizer_grouped_parameters,
+            lr=lr,
+            warmup=warmup_proportion,
+            t_total=num_train_optimization_steps,
+        )
+        scheduler = LinearWarmUpScheduler(
+            optimizer,
+            warmup=warmup_proportion,
+            total_steps=num_train_optimization_steps,
+        )
     return model, optimizer, scheduler
 
 
@@ -315,6 +279,10 @@ def evaluate(
     loss_fct = torch.nn.CrossEntropyLoss()
 
     print("*** Start evaluating ***")
+    print(f'# of examples: {len(dataset)}')
+    print(f'# steps: {len(dataloader)}')
+    print(f"batch size: {batch_size}")
+
     total_loss = 0
     # Result to gather
     all_label_ids = []
@@ -394,6 +362,16 @@ def get_datasets(tokenizer, args, processor):
     return train_data, dev_data
 
 
+def get_output_dir(args: argparse.Namespace) -> Path:
+    if args.output_dir is not None:
+        return Path(args.output_dir)
+    return Path(
+        'result',
+        args.task_name,
+        f'{args.tokenizer_name}_seed{args.seed}_lr{args.lr}',
+    )
+
+
 def train(args):
     device = get_device()
     n_gpu = torch.cuda.device_count()
@@ -403,12 +381,10 @@ def train(args):
     print("Loading processor and tokenizer...")
     processor = PROCESSORS[args.task_name]()
     num_labels = len(processor.get_labels())
-    # tokenizer = utils.load_tokenizer(args)
     tokenizer = auto_tokenizer(args.tokenizer_name)
 
     # Setup output files
-    # output_dir = os.path.join(args.output_dir, str(args.seed))
-    output_dir = Path(args.output_dir)
+    output_dir = get_output_dir(args)
     json.dump(vars(args), open(output_dir / "args_train.json", "w"), indent=2)
 
     # Load data
@@ -434,7 +410,6 @@ def train(args):
         args.loss_scale,
         args.warmup_prop,
         num_opt_steps,
-        False,
     )
     loss_fct = torch.nn.CrossEntropyLoss()
 
@@ -443,7 +418,7 @@ def train(args):
     print(f"# examples = {len(train_dataset)}")
     print(f"# epochs = {args.epochs}")
     print(f"# steps = {len(train_dataloader)}")
-    print(f"Total opt. steps = {num_opt_steps}")
+    print(f"Total steps = {num_opt_steps}")
 
     global_step = 0
     train_start_time = time()
@@ -541,7 +516,7 @@ def train(args):
             if not args.skip_checkpoint:
                 ckpt_dir = output_dir / f"ckpt-{ep}"
                 ckpt_dir.mkdir(exist_ok=True, parents=True)
-                ckpt_file = ckpt_dir / f"model.pt"
+                ckpt_file = ckpt_dir / "model.pt"
                 print(f"Saving model to {ckpt_file}")
                 torch.save({"model": model.state_dict()}, ckpt_file)
                 json.dump(
@@ -556,6 +531,10 @@ def train(args):
 
 
 def get_best_ckpt(output_dir: Path) -> Path:
+    '''
+    Get the best checkpoint from the output directory. This loops through
+    "ckpt-*" subdirectories and returns the one with the least loss.
+    '''
     min_loss = float("inf")
     best_ckpt_dir = None
     for ckpt_dir in output_dir.glob("ckpt-*"):
@@ -585,6 +564,7 @@ def test(args):
     if args.test_model:
         best_model_filename = args.test_model
     else:
+        print(f'Getting best checkpoint from {output_dir.parent}')
         best_model_filename = get_best_ckpt(output_dir.parent)
     print('Loading model from "{}"...'.format(best_model_filename))
     model = load_model(args.config_file, best_model_filename, num_labels)
@@ -626,11 +606,12 @@ def test(args):
 
 
 def main(args):
+    print('====== START ======')
     print("Arguments:")
     print(json.dumps(vars(args), indent=4), flush=True)
 
     # Setup output files
-    output_dir = Path(args.output_dir)
+    output_dir = get_output_dir(args)
     output_dir.mkdir(exist_ok=True, parents=True)
     filename_params = os.path.join(output_dir, consts.FILENAME_PARAMS)
     json.dump(vars(args), open(filename_params, "w"), indent=4)
@@ -639,7 +620,7 @@ def main(args):
         train(args)
     if "test" in args.mode:
         test(args)
-    print("DONE", flush=True)
+    print("====== DONE ======", flush=True)
 
 
 if __name__ == "__main__":
