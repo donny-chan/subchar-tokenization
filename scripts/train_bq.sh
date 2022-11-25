@@ -1,9 +1,9 @@
 #!/bin/bash
 
-task="afqmc"
+task="bq"
 
-data_dir="/home/chenyingfa/subchar-tokenization/data/${task}/split"
-test_dir="/home/chenyingfa/subchar-tokenization/data/${task}/split"
+data_dir="/home/chenyingfa/subchar-tokenization/data/${task}"
+test_dir="/home/chenyingfa/subchar-tokenization/data/${task}"
 test_name="test"
 
 model_name="char"

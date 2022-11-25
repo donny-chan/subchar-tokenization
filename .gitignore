@@ -13,3 +13,4 @@ cmrc_debug/*
 # Slurm
 slurm_output/*
 slurm-*.out
+logfile

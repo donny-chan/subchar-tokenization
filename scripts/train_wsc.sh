@@ -1,6 +1,6 @@
 #!/bin/bash
 
-task="afqmc"
+task="bq"
 
 data_dir="/home/chenyingfa/subchar-tokenization/data/${task}/split"
 test_dir="/home/chenyingfa/subchar-tokenization/data/${task}/split"

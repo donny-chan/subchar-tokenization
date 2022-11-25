@@ -1,9 +1,9 @@
 #!/bin/bash
 
-task="afqmc"
+task="iflytek"
 
-data_dir="/home/chenyingfa/subchar-tokenization/data/${task}/split"
-test_dir="/home/chenyingfa/subchar-tokenization/data/${task}/split"
+data_dir="/home/chenyingfa/subchar-tokenization/data/iflytek/split"
+test_dir="/home/chenyingfa/subchar-tokenization/data/iflytek/split"
 test_name="test"
 
 model_name="char"
@@ -29,8 +29,8 @@ cmd+=" --init_ckpt ${ckpt}"
 # cmd+=" --output_dir ${output_dir}"
 cmd+=" --tokenizer_name ${model_name}"
 cmd+=" --config_file configs/bert_config_vocab22675.json"
-cmd+=" --epochs 6"
-cmd+=" --lr 5e-5"
+cmd+=" --epochs 8"
+cmd+=" --lr 1e-4"
 cmd+=" --seed ${seed}"
 cmd+=" --test_name ${test_name}"
 # cmd+=" --tokenize_char_by_char"
