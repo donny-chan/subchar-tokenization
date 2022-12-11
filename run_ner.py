@@ -249,7 +249,7 @@ def train(args):
     tokenizer_name = utils.output_dir_to_tokenizer_name(args.output_dir)
     output_dir = os.path.join(args.output_dir, str(args.seed))
     os.makedirs(output_dir, exist_ok=True)
-    filename_params = os.path.join(output_dir, consts.FILENAME_PARAMS)
+    filename_params = os.path.join(output_dir, consts.FILENAME_ARGS)
     json.dump(vars(args), open(filename_params, 'w'), indent=4)
 
     args.train_batch_size //= args.gradient_accumulation_steps

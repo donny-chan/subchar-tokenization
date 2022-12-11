@@ -14,10 +14,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""BERT finetuning runner."""
 
-from __future__ import absolute_import, division, print_function
-
+# from __future__ import absolute_import, division, print_function
 from pathlib import Path
 import argparse
 import os
@@ -36,10 +34,7 @@ from optimization import BertAdam
 from schedulers import LinearWarmUpScheduler
 from utils import is_main_process, auto_tokenizer, set_seed
 from processors.glue import PROCESSORS, convert_examples_to_features
-
-
-FILENAME_BEST_MODEL = "best_model.bin"
-FILENAME_TEST_RESULT = "result_test.txt"
+from run_pretraining import pretraining_dataset, WorkerInitObj
 
 
 def compute_metrics(preds, labels) -> dict:
@@ -85,7 +80,7 @@ def parse_args(p=argparse.ArgumentParser()):
     p.add_argument("--mode", default="train_test")
     p.add_argument("--max_seq_length", default=128, type=int)
     p.add_argument("--train_batch_size", default=128, type=int)
-    p.add_argument("--eval_batch_size", default=1024, type=int)
+    p.add_argument("--eval_batch_size", default=512, type=int)
     p.add_argument("--lr", default=2e-5, type=float)
     p.add_argument("--epochs", default=-1, type=int)
     p.add_argument(
@@ -363,12 +358,10 @@ def get_datasets(tokenizer, args, processor):
 
 
 def get_output_dir(args: argparse.Namespace) -> Path:
-    if args.output_dir is not None:
-        return Path(args.output_dir)
+    assert args.output_dir is not None
     return Path(
-        'result',
-        args.task_name,
-        f'{args.tokenizer_name}_seed{args.seed}_lr{args.lr}',
+        args.output_dir, 
+        f'seed{args.seed}_lr{args.lr}_ep{args.epochs}',
     )
 
 
@@ -615,10 +608,11 @@ def main(args):
     # Setup output files
     output_dir = get_output_dir(args)
     output_dir.mkdir(exist_ok=True, parents=True)
-    filename_params = os.path.join(output_dir, consts.FILENAME_PARAMS)
+    filename_params = os.path.join(output_dir, consts.FILENAME_ARGS)
     json.dump(vars(args), open(filename_params, "w"), indent=4)
 
     if "train" in args.mode:
+        print('train')
         train(args)
     if "test" in args.mode:
         test(args)

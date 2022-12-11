@@ -14,3 +14,5 @@ cmrc_debug/*
 slurm_output/*
 slurm-*.out
 logfile
+
+.vscode

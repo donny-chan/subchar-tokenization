@@ -2,43 +2,36 @@
 
 task="tnews"
 
-data_dir="datasets/tnews/split"
-test_dir="datasets/tnews/split"
-test_name="."
+data_dir="/home/chenyingfa/subchar-tokenization/data/tnews/split"
+test_dir="/home/chenyingfa/subchar-tokenization/data/tnews/split"
+test_name="test"
+
+model_dir="/home/chenyingfa/subchar-tokenization"
 
 model_name="char"
+# ckpt="${model_dir}/SubChar12L20G/char/ckpt_22000.pt"
+ckpt="${model_dir}/ckpts_12l_restart/char/ckpt_18000.pt"
 
 # model_name="raw"
-# tok_type="RawZh"
-# vocab_name="raw_zh_22675"
+# ckpt="${model_dir}/SubChar12L20GNew/RawZh/ckpt_19171.pt"
+# ckpt="${model_dir}/SubChar12L20GNew/RawZh/ckpt_24585.pt"
 
 # model_name="pinyin"
-# tok_type="CommonZh"
-# vocab_name="pinyin_zh_22675"
+# ckpt="${model_dir}/SubChar12L20GNew/Pinyin/ckpt_19170.pt"
+# ckpt="${model_dir}/SubChar12L20GNew/Pinyin/ckpt_24583.pt"
 
-# model_name="pinyin_no_index"
-# tok_type="CommonZhNoIndex"
-# vocab_name="pinyin_no_index_22675"
+# model_name="wubi"
+# ckpt="${model_dir}/SubChar12L20GNew/Wubi/ckpt_19188.pt"
+# ckpt="${model_dir}/SubChar12L20GNew/Wubi/ckpt_26385.pt"
 
-# model_name="pypinyin"
-# tok_type="Pypinyin"
-# vocab_name="pypinyin_22675_notone_noindex"
 
-# model_name="pypinyin_12L"
-# tok_type="Pypinyin"
-# vocab_name="pypinyin_22675_notone_noindex"
-
-# model_name="pypinyin_nosep_12L"
-# tok_type="PypinyinNosep"
-# vocab_name="pypinyin_22675_notone_noindex_nosep"
-
+# output_dir="result/${task}/${model_name}_12l_20g_new_24585"
+output_dir="result/${task}/${model_name}_12l_restart"
 seed="0"
-ckpt="/home/chenyingfa/subchar-tokenization/SubChar12L20G/char/ckpt_22000.pt"
-output_dir="results/${task}/${model_name}/${seed}/"
 # output_dir="temp"
 
 cmd="python3 run_glue.py"
-cmd+=" --task_name tnews"
+cmd+=" --task_name ${task}"
 cmd+=" --train_dir=${data_dir}"
 cmd+=" --dev_dir=${data_dir}"
 cmd+=" --test_dir=${test_dir}"

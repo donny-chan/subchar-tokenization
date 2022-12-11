@@ -1,22 +1,29 @@
 #!/bin/bash
 
 task="iflytek"
-
 data_dir="/home/chenyingfa/subchar-tokenization/data/iflytek/split"
 test_dir="/home/chenyingfa/subchar-tokenization/data/iflytek/split"
 test_name="test"
 
+model_dir="/home/chenyingfa/subchar-tokenization"
 model_name="char"
-# model_name="raw"
-# model_name="pinyin"
-# model_name="pinyin_no_index"
-# model_name="pypinyin"
-# model_name="pypinyin_12L"
-# model_name="pypinyin_nosep_12L"
+ckpt="${model_dir}/SubChar12L20G/char/ckpt_22000.pt"
 
+model_name="raw"
+ckpt="${model_dir}/SubChar12L20GNew/RawZh/ckpt_19171.pt"
+ckpt="${model_dir}/SubChar12L20GNew/RawZh/ckpt_24585.pt"
+
+# model_name="pinyin"
+# ckpt="${model_dir}/SubChar12L20GNew/Pinyin/ckpt_19170.pt"
+# ckpt="${model_dir}/SubChar12L20GNew/Pinyin/ckpt_24583.pt"
+
+# model_name="wubi"
+# ckpt="${model_dir}/SubChar12L20GNew/Wubi/ckpt_19188.pt"
+# ckpt="${model_dir}/SubChar12L20GNew/Wubi/ckpt_26385.pt"
+
+
+output_dir="result/${task}/${model_name}_12l_20g_new_24585"
 seed="0"
-ckpt="/home/chenyingfa/subchar-tokenization/SubChar12L20G/char/ckpt_22000.pt"
-output_dir="results/${task}/${model_name}/${seed}/"
 # output_dir="temp"
 
 cmd="python3 run_glue.py"
@@ -26,10 +33,11 @@ cmd+=" --dev_dir=${data_dir}"
 cmd+=" --test_dir=${test_dir}"
 cmd+=" --mode train_test"
 cmd+=" --init_ckpt ${ckpt}"
-# cmd+=" --output_dir ${output_dir}"
+cmd+=" --output_dir ${output_dir}"
 cmd+=" --tokenizer_name ${model_name}"
 cmd+=" --config_file configs/bert_config_vocab22675.json"
 cmd+=" --epochs 8"
+cmd+=" --train_batch_size 32"
 cmd+=" --lr 1e-4"
 cmd+=" --seed ${seed}"
 cmd+=" --test_name ${test_name}"
