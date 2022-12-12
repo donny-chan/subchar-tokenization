@@ -81,7 +81,7 @@ def parse_args(p=argparse.ArgumentParser()):
     p.add_argument("--max_seq_length", default=128, type=int)
     p.add_argument("--train_batch_size", default=128, type=int)
     p.add_argument("--eval_batch_size", default=512, type=int)
-    p.add_argument("--lr", default=2e-5, type=float)
+    p.add_argument("--lr", default=3e-5, type=float)
     p.add_argument("--epochs", default=-1, type=int)
     p.add_argument(
         "--warmup_prop",
@@ -102,7 +102,7 @@ def parse_args(p=argparse.ArgumentParser()):
     p.add_argument("--fewshot", type=int, default=0)
     p.add_argument("--test_model", default=None)
     p.add_argument("--cws_vocab_file", default=None)
-    p.add_argument("--log_interval", type=int, default=10)
+    p.add_argument("--log_interval", type=int, default=50)
     return p.parse_args()
 
 
@@ -465,7 +465,7 @@ def train(args):
             global_step += 1
 
             # Log
-            if step % args.log_interval == 0:
+            if global_step % args.log_interval == 0:
                 log_dict = {
                     "epoch": round(global_step / len(train_dataloader), 2),
                     "step": global_step,
@@ -523,22 +523,34 @@ def train(args):
     print(f"time_elapsed: {time() - train_start_time}")
 
 
-def get_best_ckpt(output_dir: Path) -> Path:
+def get_best_ckpt(
+    output_dir: Path,
+    metric_name: str = "acc",
+    metric_maximize: bool = True,
+) -> Path:
     '''
     Get the best checkpoint from the output directory. This loops through
     "ckpt-*" subdirectories and returns the one with the least loss.
     '''
-    min_loss = float("inf")
+    if metric_maximize:
+        best_metric = float('-inf')
+    else:
+        best_metric = float('inf')
     best_ckpt_dir = None
     ckpt_dirs = sorted(output_dir.glob("ckpt-*"))
     assert len(ckpt_dirs) > 0, "No checkpoints found"
     for ckpt_dir in ckpt_dirs:
         if not ckpt_dir.is_dir():
             continue
-        loss = json.load(open(ckpt_dir / "result.json"))["loss"]
-        if loss < min_loss:
-            min_loss = loss
-            best_ckpt_dir = ckpt_dir
+        res = json.load(open(ckpt_dir / "result.json"))[metric_name]
+        if metric_maximize:
+            if res > best_metric:
+                best_metric = res
+                best_ckpt_dir = ckpt_dir
+        else:
+            if res < best_metric:
+                best_metric = res
+                best_ckpt_dir = ckpt_dir
     return best_ckpt_dir / "model.pt"
 
 
