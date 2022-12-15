@@ -13,12 +13,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# """BERT finetuning runner."""
 
-# from __future__ import absolute_import
-# from __future__ import division
-# from __future__ import print_function
-
+from pathlib import Path
 import argparse
 import csv
 import json
@@ -26,7 +22,6 @@ import os
 import pickle
 import random
 import time
-
 
 import numpy as np
 from tqdm import tqdm
@@ -43,6 +38,7 @@ import modeling
 from optimization import get_optimizer
 from utils import auto_tokenizer, dump_json, get_output_dir
 from mrc.tools import official_tokenization as tokenization
+from run_pretraining import pretraining_dataset, WorkerInitObj
 # from mrc.tools import utils
 
 
@@ -345,22 +341,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--max_seq_length", default=512, type=int)
     p.add_argument("--train_batch_size", default=16, type=int)
-    p.add_argument("--eval_batch_size", default=64, type=int)
+    # p.add_argument("--eval_batch_size", default=64, type=int)
     p.add_argument("--lr", default=2e-5, type=float)
-    p.add_argument(
-        "--weight_decay_rate",
-        default=0.01,
-        type=float,
-    )
+    p.add_argument("--weight_decay_rate", default=0.01, type=float)
     p.add_argument("--clip_norm", type=float, default=1.0)
     p.add_argument("--epochs", default=8, type=int)
-    p.add_argument(
-        "--warmup_proportion",
-        default=0.1,
-        type=float,
-    )
+    p.add_argument("--warmup_proportion", default=0.1, type=float)
     p.add_argument("--grad_acc_steps", type=int, default=1)
     p.add_argument("--test_model", default=None)
+    p.add_argument("--test_name", default="test")
     return p.parse_args()
 
 
@@ -518,6 +507,38 @@ def evaluate(model, dataloader, device):
     return logits, acc, loss
 
 
+def get_best_ckpt(
+    output_dir: Path,
+    metric_name: str = "acc",
+    metric_maximize: bool = True,
+) -> Path:
+    '''
+    Get the best checkpoint from the output directory. This loops through
+    "ckpt-*" subdirectories and returns the one with the least loss.
+    '''
+    if metric_maximize:
+        best_metric = float('-inf')
+    else:
+        best_metric = float('inf')
+    best_ckpt_dir = None
+    ckpt_dirs = sorted(output_dir.glob("ckpt-*"))
+    assert len(ckpt_dirs) > 0, "No checkpoints found"
+    for ckpt_dir in ckpt_dirs:
+        if not ckpt_dir.is_dir():
+            continue
+        res = json.load(open(ckpt_dir / "result.json"))[metric_name]
+        if metric_maximize:
+            if res > best_metric:
+                best_metric = res
+                best_ckpt_dir = ckpt_dir
+        else:
+            if res < best_metric:
+                best_metric = res
+                best_ckpt_dir = ckpt_dir
+    return best_ckpt_dir / "model.pt"
+
+
+
 def train(args):
     device = get_device(args)
     n_gpu = torch.cuda.device_count()
@@ -538,17 +559,12 @@ def train(args):
 
     # Tokenizer
     print("Loading tokenizer...")
-    print(
-        "vocab file={}, vocab_model_file={}".format(
-            args.vocab_file, args.vocab_model_file
-        )
-    )
     # tokenizer = load_tokenizer(args)
     tokenizer = auto_tokenizer(args.tokenizer_name)
     real_tokenizer_type = args.output_dir.split(os.path.sep)[-2]
 
     # Prepare Model
-    print('Loading model from checkpoint "{}"...'.format(args.init_ckpt))
+    print(f'Loading model from checkpoint "{args.init_ckpt}"...')
     model, config = load_model_and_config(
         args.config_file, args.init_ckpt, NUM_CHOICES
     )
@@ -579,9 +595,9 @@ def train(args):
     optimizer = get_optimizer(
         model=model,
         float16=False,
-        learning_rate=args.learning_rate,
+        lr=args.lr,
         total_steps=num_train_steps,
-        schedule=args.schedule,
+        schedule="warmup_linear",
         warmup_rate=args.warmup_proportion,
         max_grad_norm=args.clip_norm,
         weight_decay_rate=args.weight_decay_rate,
@@ -604,7 +620,7 @@ def train(args):
     eval_data = features_to_dataset(eval_features, NUM_CHOICES)
     eval_sampler = SequentialSampler(eval_data)
     eval_dataloader = DataLoader(
-        eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size
+        eval_data, sampler=eval_sampler, batch_size=4 * args.train_batch_size
     )
 
     train_features = get_features(
@@ -628,15 +644,15 @@ def train(args):
     model.to(device)
 
     print("***** Running training *****")
-    print("  # epochs = %d", args.epochs)
-    print("  # train examples = %d", len(train_examples))
-    print("  # train features = %d", len(train_features))
-    print("  # eval examples = %d", len(eval_examples))
-    print("  # eval features = %d", len(eval_features))
-    print("  Train batch size = %d", args.train_batch_size)
-    print("  Eval batch size = %d", args.eval_batch_size)
-    print("  Num steps = %d", num_train_steps)
-    print("  Grad acc steps = %d", args.grad_acc_steps)
+    print("  # epochs:", args.epochs)
+    print("  # train examples:", len(train_examples))
+    print("  # train features:", len(train_features))
+    print("  # eval examples:", len(eval_examples))
+    print("  # eval features:", len(eval_features))
+    print("  Train batch size:", args.train_batch_size)
+    # print("  Eval batch size:", args.eval_batch_size)
+    print("  Num steps:", num_train_steps)
+    print("  Grad acc steps:", args.grad_acc_steps)
     print("****************************", flush=True)
 
     # Start timer
@@ -649,7 +665,6 @@ def train(args):
     for ep in range(int(args.epochs)):
         model.train()
         total_loss = 0
-        nb_tr_examples, n_train_steps = 0, 0
         for step, batch in tqdm(
             enumerate(train_dataloader),
             desc=f"Training (epoch {ep})",
@@ -667,12 +682,11 @@ def train(args):
 
             loss.backward()
 
-            nb_tr_examples += input_ids.size(0)
             if (step + 1) % args.grad_acc_steps == 0:
                 optimizer.step()  # We have accumulated enought gradients
                 model.zero_grad()
-                n_train_steps += 1
-        train_loss = total_loss / (n_train_steps + 1e-8)
+        num_train_steps = len(train_dataloader) / args.grad_acc_steps
+        train_loss = total_loss / (num_train_steps + 1e-8)
 
         # Evaluation
         ckpt_dir = output_dir / f"ckpt-{ep}"
@@ -688,7 +702,7 @@ def train(args):
         result = {
             "eval_loss": eval_loss,
             "eval_acc": eval_acc,
-            "train_steps": n_train_steps,
+            "train_steps": num_train_steps,
             "train_loss": train_loss,
         }
         print(result)
@@ -714,8 +728,8 @@ def train(args):
 
 def test(args):
     # Output files
-    output_dir = get_output_dir(args)
-    os.makedirs(output_dir, exist_ok=True)
+    output_dir = get_output_dir(args) / args.test_name
+    os.makedirs(output_dir, exist_ok=True, parents=True)
     print(json.dumps(vars(args), indent=4))
 
     device = get_device(args)
@@ -723,23 +737,24 @@ def test(args):
     print("Device: " + str(device))
     print("Num gpus: " + str(n_gpu))
 
-    batch_size = args.eval_batch_size
+    batch_size = 4 * args.train_batch_size
 
     # Tokenizer and processor
     print("Loading tokenizer...", flush=True)
     tokenizer = auto_tokenizer(args)
 
     # Load model
-    if args.test_model is not None and len(args.test_model) > 0:
-        filename_best_model = args.test_model
-    else:
-        filename_best_model = os.path.join(
-            output_dir, modeling.FILENAME_BEST_MODEL
-        )
+    best_ckpt_file = get_best_ckpt(output_dir.parent)
+    # if args.test_model is not None and len(args.test_model) > 0:
+    #     filename_best_model = args.test_model
+    # else:
+    #     filename_best_model = os.path.join(
+    #         output_dir, modeling.FILENAME_BEST_MODEL
+    #     )
 
-    print('Loading model from "{}"...'.format(filename_best_model))
+    print(f'Loading model from "{best_ckpt_file}"...')
     model, config = load_model_and_config(
-        args.config_file, filename_best_model, NUM_CHOICES
+        args.config_file, best_ckpt_file, NUM_CHOICES
     )
 
     # Sanity checks

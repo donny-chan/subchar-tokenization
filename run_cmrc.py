@@ -557,7 +557,7 @@ def train(args: argparse.Namespace) -> None:
     optimizer = get_optimizer(
         model=model,
         float16=False,
-        learning_rate=args.lr,
+        lr=args.lr,
         total_steps=total_steps,
         schedule=args.schedule,
         warmup_rate=args.warmup_rate,

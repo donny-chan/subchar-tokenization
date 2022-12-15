@@ -173,7 +173,7 @@ class BertAdam(Optimizer):
 
         return loss
 
-def get_optimizer(model, float16, learning_rate, total_steps, schedule,
+def get_optimizer(model, float16, lr, total_steps, schedule,
                   warmup_rate, weight_decay_rate, max_grad_norm, opt_pooler=False):
     # Prepare optimizer
     assert 0.0 <= warmup_rate <= 1.0
@@ -199,13 +199,13 @@ def get_optimizer(model, float16, learning_rate, total_steps, schedule,
                 "Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training.")
 
         optimizer = FusedAdam(optimizer_parameters,
-                              lr=learning_rate,
+                              lr=lr,
                               bias_correction=False,
                               max_grad_norm=max_grad_norm)
         optimizer = FP16_Optimizer(optimizer, dynamic_loss_scale=True)
     else:
         optimizer = BertAdam(params=optimizer_parameters,
-                             lr=learning_rate,
+                             lr=lr,
                              warmup=warmup_rate,
                              max_grad_norm=max_grad_norm,
                              t_total=total_steps,
