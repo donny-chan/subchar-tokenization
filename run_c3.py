@@ -1,5 +1,6 @@
 # coding=utf-8
-# Copyright 2018 The Google AI Language Team Authors and The HugginFace Inc. team.
+# Copyright 2018 The Google AI Language Team Authors and The HugginFace
+# Inc. team.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,6 +20,7 @@
 # from __future__ import print_function
 
 import argparse
+from pathlib import Path
 import csv
 import json
 import logging
@@ -26,6 +28,7 @@ import os
 import pickle
 import random
 import time
+
 # from shutil import copyfile
 
 import consts
@@ -33,23 +36,31 @@ import consts
 import numpy as np
 from tqdm import tqdm
 import torch
-from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
+from torch.utils.data import (
+    TensorDataset,
+    DataLoader,
+    RandomSampler,
+    SequentialSampler,
+)
 
 import modeling
-from optimization import BertAdam, warmup_linear, get_optimizer
-from utils import get_freer_gpu, load_tokenizer
+from optimization import get_optimizer
+from utils import auto_tokenizer
 
 from mrc.tools import official_tokenization as tokenization
 from mrc.tools import utils
+
 
 # Contants for C3
 NUM_CHOICES = 4  # 数据集里不一定有四个选项，但是会手动加 “无效答案” 至4个
 REVERSE_ORDER = False
 SA_STEP = False
 
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
-                    datefmt='%m/%d/%Y %H:%M:%S',
-                    level=logging.INFO)
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
+    datefmt="%m/%d/%Y %H:%M:%S",
+    level=logging.INFO,
+)
 logger = logging.getLogger(__name__)
 
 
@@ -116,7 +127,7 @@ class c3Processor(DataProcessor):
         self.data_dir = data_dir
 
         for sid in range(3):
-        # for sid in range(2):
+            # for sid in range(2):
             # Skip files that are not going to use
             if not do_train:
                 if sid == 0:
@@ -127,7 +138,7 @@ class c3Processor(DataProcessor):
             if not do_test:
                 if sid == 2:
                     continue
-                
+
             data = []
             for subtask in ["d", "m"]:
                 files = ["train.json", "dev.json", "test.json"]
@@ -135,16 +146,21 @@ class c3Processor(DataProcessor):
                 filename = self.data_dir + "/" + subtask + "-" + files[sid]
                 with open(filename, "r", encoding="utf8") as f:
                     data += json.load(f)
-            logger.info('Loaded {} examples from "{}"'.format(len(data), filename))
+            logger.info(
+                'Loaded {} examples from "{}"'.format(len(data), filename)
+            )
             if sid == 0:
                 random.shuffle(data)
             for i in range(len(data)):
                 for j in range(len(data[i][1])):
-                    d = ['\n'.join(data[i][0]).lower(), data[i][1][j]["question"].lower()]
+                    d = [
+                        "\n".join(data[i][0]).lower(),
+                        data[i][1][j]["question"].lower(),
+                    ]
                     for k in range(len(data[i][1][j]["choice"])):
                         d += [data[i][1][j]["choice"][k].lower()]
                     for k in range(len(data[i][1][j]["choice"]), 4):
-                        d += ['无效答案']  # 有些C3数据选项不足4个，添加[无效答案]能够有效增强模型收敛稳定性
+                        d += ["无效答案"]  # 有些C3数据选项不足4个，添加[无效答案]能够有效增强模型收敛稳定性
                     d += [data[i][1][j]["answer"].lower()]
                     self.D[sid] += [d]
 
@@ -166,10 +182,10 @@ class c3Processor(DataProcessor):
 
     def _create_examples(self, data, set_type):
         """Creates examples for the training and dev sets."""
-        cache_dir = os.path.join(self.data_dir, set_type + '_examples.pkl')
+        cache_dir = os.path.join(self.data_dir, set_type + "_examples.pkl")
         # if os.path.exists(cache_dir):
         if False:
-            examples = pickle.load(open(cache_dir, 'rb'))
+            examples = pickle.load(open(cache_dir, "rb"))
         else:
             examples = []
             for (i, d) in enumerate(data):
@@ -184,15 +200,25 @@ class c3Processor(DataProcessor):
                     text_a = tokenization.convert_to_unicode(data[i][0])
                     text_b = tokenization.convert_to_unicode(data[i][k + 2])
                     text_c = tokenization.convert_to_unicode(data[i][1])
-                    examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, text_c=text_c))
+                    examples.append(
+                        InputExample(
+                            guid=guid,
+                            text_a=text_a,
+                            text_b=text_b,
+                            label=label,
+                            text_c=text_c,
+                        )
+                    )
 
-            with open(cache_dir, 'wb') as w:
+            with open(cache_dir, "wb") as w:
                 pickle.dump(examples, w)
 
         return examples
 
 
-def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer):
+def convert_examples_to_features(
+    examples, label_list, max_seq_length, tokenizer
+):
     """Loads a data file into a list of `InputBatch`s."""
 
     # print("#examples", len(examples))
@@ -249,8 +275,10 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
         if ex_index < 1:
             logger.info("*** Example ***")
             logger.info("guid: %s" % (example.guid))
-            logger.info("tokens: %s" % " ".join(
-                [tokenization.printable_text(x) for x in tokens]))
+            logger.info(
+                "tokens: %s"
+                % " ".join([tokenization.printable_text(x) for x in tokens])
+            )
         #     logger.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
         #     logger.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
         #     logger.info(
@@ -262,7 +290,9 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
                 input_ids=input_ids,
                 input_mask=input_mask,
                 segment_ids=segment_ids,
-                label_id=label_id))
+                label_id=label_id,
+            )
+        )
         if len(features[-1]) == NUM_CHOICES:
             features.append([])
 
@@ -307,98 +337,100 @@ def _truncate_seq_tuple(tokens_a, tokens_b, tokens_c, max_length):
             tokens_c.pop()
 
 
-def accuracy(logits, labels):
+def accuracy(logits, labels) -> float:
     preds = np.argmax(logits, axis=1)
     return np.sum(preds == labels)
 
 
-def parse_args():
-    parser = argparse.ArgumentParser()
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser()
 
-    ## Required parameters
-    parser.add_argument('--data_dir', type=str, required=True)
-    parser.add_argument('--output_dir', type=str, required=True)
-    parser.add_argument('--tokenizer_type', type=str, required=True)
-    parser.add_argument('--vocab_file', type=str, required=True)
-    parser.add_argument('--vocab_model_file', type=str, required=True)
-    parser.add_argument('--cws_vocab_file', type=str, default='')
-    parser.add_argument('--config_file', type=str, required=True)
-    parser.add_argument('--init_checkpoint', type=str, required=True)
+    # Required parameters
+    p.add_argument("--mode", required=True)
+    p.add_argument("--data_dir", required=True)
+    p.add_argument("--output_dir", required=True)
+    p.add_argument("--tokenizer_name", required=True)
+    # parser.add_argument('--tokenizer_type', required=True)
+    # parser.add_argument('--vocab_file', required=True)
+    # parser.add_argument('--vocab_model_file', required=True)
+    # p.add_argument('--cws_vocab_file', default='')
+    p.add_argument("--config_file", required=True)
+    p.add_argument("--init_ckpt", required=True)
 
-    ## Other parameters
-    parser.add_argument("--max_seq_length", default=512, type=int)
-    parser.add_argument("--do_train", action='store_true')
-    parser.add_argument("--do_eval", action='store_true')
-    parser.add_argument('--do_test',  action='store_true')
-    parser.add_argument("--train_batch_size", default=16, type=int)
-    parser.add_argument("--eval_batch_size", default=16, type=int)
-    parser.add_argument("--learning_rate",
-                        default=2e-5,
-                        type=float,
-                        help="The initial learning rate for Adam.")
-    parser.add_argument("--schedule",
-                        default='warmup_linear',
-                        type=str,
-                        help='schedule')
-    parser.add_argument("--weight_decay_rate",
-                        default=0.01,
-                        type=float,
-                        help='weight_decay_rate')
-    parser.add_argument('--clip_norm',
-                        type=float,
-                        default=1.0)
-    parser.add_argument("--epochs", default=8, type=int)
-    parser.add_argument("--warmup_proportion",
-                        default=0.1,
-                        type=float,
-                        help="Proportion of training to perform linear learning rate warmup for. "
-                             "E.g., 0.1 = 10%% of training.")
-    parser.add_argument('--seed', type=int, required=True)
-    parser.add_argument('--gradient_accumulation_steps', type=int, default=1)
-    parser.add_argument('--test_model', type=str, default=None)
-    return parser.parse_args()
+    # Other parameters
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--max_seq_length", default=512, type=int)
+    p.add_argument("--train_batch_size", default=16, type=int)
+    p.add_argument("--eval_batch_size", default=64, type=int)
+    p.add_argument("--lr", default=2e-5, type=float)
+    p.add_argument(
+        "--weight_decay_rate",
+        default=0.01,
+        type=float,
+    )
+    p.add_argument("--clip_norm", type=float, default=1.0)
+    p.add_argument("--epochs", default=8, type=int)
+    p.add_argument(
+        "--warmup_proportion",
+        default=0.1,
+        type=float,
+    )
+    p.add_argument("--grad_acc_steps", type=int, default=1)
+    p.add_argument("--test_model", default=None)
+    return p.parse_args()
 
 
 def get_features(
-    examples, 
-    data_type, 
-    data_dir, 
+    examples,
+    data_type,
+    data_dir,
     max_seq_length,
     tokenizer,
     tokenizer_type,
     vocab_size,
-    label_list):
+    label_list,
+):
 
-    if data_type == 'eval':
-        data_type = 'dev'
+    if data_type == "eval":
+        data_type = "dev"
 
-    if data_type not in ['train', 'dev', 'test']:
-        raise ValueError('Expected "train", "dev" or "test", but got', data_type)
+    if data_type not in ["train", "dev", "test"]:
+        raise ValueError(
+            'Expected "train", "dev" or "test", but got', data_type
+        )
 
-    file_feature = '{}_features_{}_{}_{}.pkl'.format(data_type, max_seq_length, tokenizer_type, vocab_size)
+    file_feature = "{}_features_{}_{}_{}.pkl".format(
+        data_type, max_seq_length, tokenizer_type, vocab_size
+    )
     file_feature = os.path.join(data_dir, file_feature)
 
-    if data_type != 'test' and os.path.exists(file_feature):
-    # if False:
-        logger.info('Loading features from \"' + file_feature + '\"...')
-        features = pickle.load(open(file_feature, 'rb'))
-        logger.info('Loaded {} features.'.format(len(features)))
+    if data_type != "test" and os.path.exists(file_feature):
+        # if False:
+        logger.info('Loading features from "' + file_feature + '"...')
+        features = pickle.load(open(file_feature, "rb"))
+        logger.info("Loaded {} features.".format(len(features)))
     else:
-        logger.info('Converting {} examples into features...'.format(len(examples)))
-        features = convert_examples_to_features(examples, label_list, max_seq_length, tokenizer)
-        with open(file_feature, 'wb') as w:
+        logger.info(
+            "Converting {} examples into features...".format(len(examples))
+        )
+        features = convert_examples_to_features(
+            examples, label_list, max_seq_length, tokenizer
+        )
+        with open(file_feature, "wb") as w:
             pickle.dump(features, w)
-        logger.info('Saved {} features to "{}".'.format(len(features), file_feature))
+        logger.info(
+            'Saved {} features to "{}".'.format(len(features), file_feature)
+        )
     return features
 
 
 def get_device(args):
     if torch.cuda.is_available():
-        return torch.device('cuda')  # Only one gpu
+        return torch.device("cuda")  # Only one gpu
         free_gpu = get_freer_gpu()
-        return torch.device('cuda', free_gpu)
+        return torch.device("cuda", free_gpu)
     else:
-        return torch.device('cpu')
+        return torch.device("cpu")
 
 
 def load_model_and_config(config_file, model_file, num_choices):
@@ -408,7 +440,7 @@ def load_model_and_config(config_file, model_file, num_choices):
         config.vocab_size += 8 - (config.vocab_size % 8)
     modeling.ACT2FN["bias_gelu"] = modeling.bias_gelu_training
     model = modeling.BertForMultipleChoice(config, num_choices)
-    state_dict = torch.load(model_file, map_location='cpu')['model']
+    state_dict = torch.load(model_file, map_location="cpu")["model"]
     model.load_state_dict(state_dict, strict=False)
     return model, config
 
@@ -432,7 +464,9 @@ def features_to_dataset(features, num_choices):
     all_input_mask = torch.tensor(input_mask, dtype=torch.long)
     all_segment_ids = torch.tensor(segment_ids, dtype=torch.long)
     all_label_ids = torch.tensor(label_id, dtype=torch.long)
-    return TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
+    return TensorDataset(
+        all_input_ids, all_input_mask, all_segment_ids, all_label_ids
+    )
 
 
 def save_submission(logits, folder):
@@ -458,16 +492,16 @@ def save_time(start_time, folder):
     stop_time = time.time()
     elapsed = stop_time - start_time
     time_stats = {
-        'start_time': str(start_time),
-        'stop_time': str(stop_time),
-        'elapsed': str(elapsed),
+        "start_time": str(start_time),
+        "stop_time": str(stop_time),
+        "elapsed": str(elapsed),
     }
-    time_logfile = os.path.join(folder, 'time_log.txt')
-    json.dump(time_stats, open(time_logfile, 'w', encoding='utf8'))
-      
+    time_logfile = os.path.join(folder, "time_log.txt")
+    json.dump(time_stats, open(time_logfile, "w", encoding="utf8"))
+
 
 def evaluate(model, dataloader, device):
-    '''Return (logits, acc, loss)'''
+    """Return (logits, acc, loss)"""
     model.eval()
     loss = 0
     acc = 0
@@ -477,10 +511,15 @@ def evaluate(model, dataloader, device):
         batch = tuple(t.to(device) for t in batch)
         input_ids, input_mask, segment_ids, label_ids = batch
         with torch.no_grad():
-            tmp_test_loss, logits = model(input_ids, segment_ids, input_mask,
-                                          label_ids, return_logits=True)
+            tmp_test_loss, logits = model(
+                input_ids,
+                segment_ids,
+                input_mask,
+                label_ids,
+                return_logits=True,
+            )
         logits = logits.detach().cpu().numpy()
-        label_ids = label_ids.to('cpu').numpy()
+        label_ids = label_ids.to("cpu").numpy()
         for i in range(len(logits)):
             logits_all.append(logits[i])
         tmp_test_accuracy = accuracy(logits, label_ids.reshape(-1))
@@ -496,60 +535,71 @@ def evaluate(model, dataloader, device):
 
 
 def train(args):
-    # args.train_batch_size = int(args.train_batch_size / args.gradient_accumulation_steps)
     device = get_device(args)
     n_gpu = torch.cuda.device_count()
-    logger.info('Device: ' + str(device))
-    logger.info('Num gpus: ' + str(n_gpu))
-    
+    logger.info("Device: " + str(device))
+    logger.info("Num gpus: " + str(n_gpu))
+
     # Output files
-    output_dir = os.path.join(args.output_dir, str(args.seed))
+    output_dir = Path(args.output_dir, str(args.seed))
     os.makedirs(output_dir, exist_ok=True)
 
-    filename_scores = os.path.join(output_dir, 'scores.txt')
-    filename_params = os.path.join(output_dir, 'params.json')
-    logger.info(json.dumps(vars(args), indent=4))
-    json.dump(vars(args), open(filename_params, 'w'), indent=4)
-    
+    filename_scores = os.path.join(output_dir, "scores.txt")
+    filename_params = output_dir / "params.json"
+    print(json.dumps(vars(args), indent=4), flush=True)
+    json.dump(vars(args), open(filename_params, "w"), indent=4)
+
     # Init file for logging scores
-    with open(filename_scores, 'w') as f:
-        f.write('\t'.join(['epoch', 'train_loss', 'dev_loss', 'dev_acc']) + '\n')
+    with open(filename_scores, "w") as f:
+        f.write(
+            "\t".join(["epoch", "train_loss", "dev_loss", "dev_acc"]) + "\n"
+        )
 
     # Processor
-    logger.info('Loading processor...')
+    logger.info("Loading processor...")
     processor = c3Processor(args.data_dir, do_train=True, do_eval=True)
     label_list = processor.get_labels()
 
     # Tokenizer
-    logger.info('Loading tokenizer...')
-    logger.info('vocab file={}, vocab_model_file={}'.format(args.vocab_file, args.vocab_model_file))
-    # tokenizer = ALL_TOKENIZERS[args.tokenizer_type](args.vocab_file, args.vocab_model_file)
-    tokenizer = load_tokenizer(args)
+    logger.info("Loading tokenizer...")
+    logger.info(
+        "vocab file={}, vocab_model_file={}".format(
+            args.vocab_file, args.vocab_model_file
+        )
+    )
+    # tokenizer = load_tokenizer(args)
+    tokenizer = auto_tokenizer(args.tokenizer_name)
     real_tokenizer_type = args.output_dir.split(os.path.sep)[-2]
 
     # Prepare Model
-    logger.info('Loading model from checkpoint "{}"...'.format(args.init_checkpoint))
-    model, config = load_model_and_config(args.config_file, args.init_checkpoint,
-                                          NUM_CHOICES)
+    logger.info('Loading model from checkpoint "{}"...'.format(args.init_ckpt))
+    model, config = load_model_and_config(
+        args.config_file, args.init_ckpt, NUM_CHOICES
+    )
 
     if args.max_seq_length > config.max_position_embeddings:
         raise ValueError(
             "Cannot use sequence length {} because the BERT model was only trained up to sequence length {}".format(
-                args.max_seq_length, config.max_position_embeddings))
+                args.max_seq_length, config.max_position_embeddings
+            )
+        )
 
     # Save config file
-    logger.info('Saving config file...')
-    model_to_save = model.module if hasattr(model, 'module') else model
+    logger.info("Saving config file...")
+    model_to_save = model.module if hasattr(model, "module") else model
     filename_config = os.path.join(output_dir, modeling.FILENAME_CONFIG)
-    with open(filename_config, 'w') as f:
+    with open(filename_config, "w") as f:
         f.write(model_to_save.config.to_json_string())
 
-    
     # Load training data
-    logger.info('Loading training data...')
+    logger.info("Loading training data...")
     train_examples = processor.get_train_examples()
-    actual_batch_size = int(args.train_batch_size / args.gradient_accumulation_steps)
-    num_train_steps = args.epochs * int(len(train_examples) / NUM_CHOICES / actual_batch_size)
+    actual_batch_size = int(
+        args.train_batch_size / args.grad_acc_steps
+    )
+    num_train_steps = args.epochs * int(
+        len(train_examples) / NUM_CHOICES / actual_batch_size
+    )
 
     # Optimizer
     optimizer = get_optimizer(
@@ -561,50 +611,59 @@ def train(args):
         warmup_rate=args.warmup_proportion,
         max_grad_norm=args.clip_norm,
         weight_decay_rate=args.weight_decay_rate,
-        opt_pooler=True)  # multi_choice must update pooler
+        opt_pooler=True,
+    )  # multi_choice must update pooler
 
     # Load eval data
     if args.do_eval:
-        logger.info('Loading eval data...')
+        logger.info("Loading eval data...")
         eval_examples = processor.get_dev_examples()
         eval_features = get_features(
-            eval_examples, 
-            'eval', 
-            args.data_dir, 
+            eval_examples,
+            "eval",
+            args.data_dir,
             args.max_seq_length,
             tokenizer,
             real_tokenizer_type,
             config.vocab_size,
-            label_list)
+            label_list,
+        )
         eval_data = features_to_dataset(eval_features, NUM_CHOICES)
         eval_sampler = SequentialSampler(eval_data)
-        eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size)
+        eval_dataloader = DataLoader(
+            eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size
+        )
 
     train_features = get_features(
-        train_examples, 
-        'train', 
+        train_examples,
+        "train",
         args.data_dir,
         args.max_seq_length,
         tokenizer,
         real_tokenizer_type,
         config.vocab_size,
-        label_list)
+        label_list,
+    )
     train_data = features_to_dataset(train_features, NUM_CHOICES)
     train_sampler = RandomSampler(train_data)
-    train_dataloader = DataLoader(train_data, sampler=train_sampler, 
-                                  batch_size=actual_batch_size, drop_last=True)
+    train_dataloader = DataLoader(
+        train_data,
+        sampler=train_sampler,
+        batch_size=actual_batch_size,
+        drop_last=True,
+    )
     model.to(device)
-    
+
     logger.info("***** Running training *****")
-    logger.info('  Num epochs = %d', args.epochs)
+    logger.info("  Num epochs = %d", args.epochs)
     logger.info("  Num train examples = %d", len(train_examples))
-    logger.info('  Num train features = %d', len(train_features))
+    logger.info("  Num train features = %d", len(train_features))
     logger.info("  Num eval examples = %d", len(eval_examples))
-    logger.info('  Num eval features = %d', len(eval_features))
+    logger.info("  Num eval features = %d", len(eval_features))
     logger.info("  Train batch size = %d", args.train_batch_size)
     logger.info("  Eval batch size = %d", args.eval_batch_size)
     logger.info("  Num steps = %d", num_train_steps)
-    logger.info("  Grad acc steps = %d", args.gradient_accumulation_steps)
+    logger.info("  Grad acc steps = %d", args.grad_acc_steps)
     logger.info("****************************")
 
     # Start timer
@@ -618,23 +677,25 @@ def train(args):
         model.train()
         total_loss = 0
         nb_tr_examples, n_train_steps = 0, 0
-        for step, batch in tqdm(enumerate(train_dataloader), 
-                                desc=f"Training (epoch {ep})",
-                                mininterval=2.0,
-                                total=len(train_dataloader)):
+        for step, batch in tqdm(
+            enumerate(train_dataloader),
+            desc=f"Training (epoch {ep})",
+            mininterval=2.0,
+            total=len(train_dataloader),
+        ):
             batch = tuple(t.to(device) for t in batch)
             input_ids, input_mask, segment_ids, label_ids = batch
 
             loss = model(input_ids, segment_ids, input_mask, label_ids)
 
-            if args.gradient_accumulation_steps > 1:
-                loss = loss / args.gradient_accumulation_steps
+            if args.grad_acc_steps > 1:
+                loss = loss / args.grad_acc_steps
             total_loss += loss.item()
 
             loss.backward()
 
             nb_tr_examples += input_ids.size(0)
-            if (step + 1) % args.gradient_accumulation_steps == 0:
+            if (step + 1) % args.grad_acc_steps == 0:
                 optimizer.step()  # We have accumulated enought gradients
                 model.zero_grad()
                 n_train_steps += 1
@@ -643,45 +704,57 @@ def train(args):
         # Evaluation
         if args.do_eval:
             logger.info("***** Running Evaluation *****")
-            logits_all, eval_acc, eval_loss = evaluate(model, eval_dataloader,
-                                                       device)
+            logits_all, eval_acc, eval_loss = evaluate(
+                model, eval_dataloader, device
+            )
             eval_acc_history.append(eval_acc)
             eval_loss_history.append(eval_loss)
             train_loss_history.append(train_loss)
 
-            result = {'eval_loss': eval_loss,
-                      'eval_acc': eval_acc,
-                      'train_steps': n_train_steps,
-                      'train_loss': train_loss}
+            result = {
+                "eval_loss": eval_loss,
+                "eval_acc": eval_acc,
+                "train_steps": n_train_steps,
+                "train_loss": train_loss,
+            }
             logger.info("***** Eval results *****")
             for key in sorted(result.keys()):
                 logger.info("  %s = %s", key, str(result[key]))
-            logger.info('  Epoch = {}'.format(ep))
+            logger.info("  Epoch = {}".format(ep))
             logger.info("************************")
 
             # Log results to scores file
-            with open(filename_scores, 'a') as f:
-                f.write("{}\t{}\t{}\t{}\n".format(ep, train_loss, eval_loss, eval_acc))
+            with open(filename_scores, "a") as f:
+                f.write(
+                    "{}\t{}\t{}\t{}\n".format(
+                        ep, train_loss, eval_loss, eval_acc
+                    )
+                )
 
         # Save model if it's best on dev set
         if args.do_eval:
-            if len(eval_acc_history) == 0 or eval_acc_history[-1] == max(eval_acc_history):
-                model_to_save = model.module if hasattr(model, 'module') else model
+            if len(eval_acc_history) == 0 or eval_acc_history[-1] == max(
+                eval_acc_history
+            ):
+                model_to_save = (
+                    model.module if hasattr(model, "module") else model
+                )
                 # dir_model = os.path.join(output_dir, 'models')
                 # os.makedirs(dir_model, exist_ok=True)
                 # filename_model = os.path.join(dir_model, 'model_epoch_' + str(ep) + '.bin')
                 # filename_model = os.path.join(output_dir, 'model_epoch_' + str(ep) + '.bin')
-                filename_model = os.path.join(output_dir, modeling.FILENAME_BEST_MODEL)
+                filename_model = os.path.join(
+                    output_dir, modeling.FILENAME_BEST_MODEL
+                )
                 torch.save(
                     {"model": model_to_save.state_dict()},
                     filename_model,
                 )
                 # copyfile(filename_model, filename_best_model)
-                logger.info('New best model saved')
+                logger.info("New best model saved")
 
+    logger.info("Training finished")
 
-    logger.info('Training finished')
-    
     # Log time to file
     save_time(start_time, output_dir)
 
@@ -691,74 +764,77 @@ def test(args):
     output_dir = os.path.join(args.output_dir, str(args.seed))
     os.makedirs(output_dir, exist_ok=True)
     logger.info(json.dumps(vars(args), indent=4))
-    
+
     device = get_device(args)
     n_gpu = torch.cuda.device_count()
-    logger.info('Device: ' + str(device))
-    logger.info('Num gpus: ' + str(n_gpu))
-    
+    logger.info("Device: " + str(device))
+    logger.info("Num gpus: " + str(n_gpu))
+
     batch_size = args.eval_batch_size
 
     # Tokenizer and processor
-    logger.info('Loading tokenizer...')
-    tokenizer = load_tokenizer(args)
-    
+    logger.info("Loading tokenizer...")
+    tokenizer = auto_tokenizer(args)
+
     # Load model
     if args.test_model is not None and len(args.test_model) > 0:
         filename_best_model = args.test_model
     else:
-        filename_best_model = os.path.join(output_dir, modeling.FILENAME_BEST_MODEL)
+        filename_best_model = os.path.join(
+            output_dir, modeling.FILENAME_BEST_MODEL
+        )
     if args.config_file is not None and len(args.config_file) > 0:
         filename_config = args.config_file
     else:
         filename_config = os.path.join(output_dir, modeling.FILENAME_CONFIG)
 
     logger.info('Loading model from "{}"...'.format(filename_best_model))
-    model, config = load_model_and_config(filename_config, filename_best_model,
-                                          NUM_CHOICES)
+    model, config = load_model_and_config(
+        filename_config, filename_best_model, NUM_CHOICES
+    )
 
     # Sanity checks
     if args.max_seq_length > config.max_position_embeddings:
         msg = "Cannot use sequence length {} because the BERT model was only \
-trained up to sequence length {}".format(args.max_seq_length, 
-                                         config.max_position_embeddings)
+trained up to sequence length {}".format(
+            args.max_seq_length, config.max_position_embeddings
+        )
         raise ValueError(msg)
     model.to(device)
 
     real_tokenizer_type = args.output_dir.split(os.path.sep)[-2]
-    
+
     # Load test data
-    logger.info('Loading processor...')
+    logger.info("Loading processor...")
     processor = c3Processor(args.data_dir, do_test=True)
     label_list = processor.get_labels()
-    logger.info('Loading test data...')
+    logger.info("Loading test data...")
     examples = processor.get_examples()
     examples = processor.get_examples()
     features = get_features(
-        examples, 
-        'test', 
-        args.data_dir, 
+        examples,
+        "test",
+        args.data_dir,
         args.max_seq_length,
         tokenizer,
         real_tokenizer_type,
         config.vocab_size,
-        label_list)
+        label_list,
+    )
     test_data = features_to_dataset(features, NUM_CHOICES)
     sampler = SequentialSampler(test_data)
     dataloader = DataLoader(test_data, sampler=sampler, batch_size=batch_size)
 
     logger.info("***** Running testing *****")
-    logger.info('  Num examples = {}'.format(len(examples)))
-    logger.info('  Num features = {}'.format(len(features)))
-    logger.info('  Batch size   = {}'.format(batch_size))
-
+    logger.info("  Num examples = {}".format(len(examples)))
+    logger.info("  Num features = {}".format(len(features)))
+    logger.info("  Batch size   = {}".format(batch_size))
 
     # Execute testing
     logits_all, acc, loss = evaluate(model, dataloader, device)
 
     # Save results
-    result = {'test_loss': loss,
-              'test_acc': acc}
+    result = {"test_loss": loss, "test_acc": acc}
 
     result_test_file = os.path.join(output_dir, consts.FILENAME_TEST_RESULT)
     with open(result_test_file, "w") as f:
@@ -769,38 +845,29 @@ trained up to sequence length {}".format(args.max_seq_length,
         logger.info("************************")
 
     # Save logits to file
-    logger.info('Saving to logits_test.txt')
+    logger.info("Saving to logits_test.txt")
     file_logits = os.path.join(output_dir, "logits_test.txt")
     save_logits(logits_all, file_logits)
 
     # Save to submission file
-    logger.info('Saving predictions to submission_test.json')
+    logger.info("Saving predictions to submission_test.json")
     save_submission(logits_all, output_dir)
 
-    print('Testing finished')
+    print("Testing finished")
 
 
 def main(args):
-    # Sanity checks
-    if args.gradient_accumulation_steps < 1:
-        raise ValueError("Invalid gradient_accumulation_steps parameter: {}, should be >= 1".format(
-            args.gradient_accumulation_steps))
-    if not args.do_train and not args.do_eval and not args.do_test:
-        raise ValueError("At least one of `do_train` or `do_eval` or `do_test` must be True.")
-    
-    # Seed
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
 
-    if args.do_train:
+    if "train" in args.mode:
         train(args)
-
-    if args.do_test:
+    if "test" in args.mode:
         test(args)
 
-    print('DONE')
+    print("DONE")
 
 
 if __name__ == "__main__":
