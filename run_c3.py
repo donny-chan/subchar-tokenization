@@ -20,18 +20,13 @@
 # from __future__ import print_function
 
 import argparse
-from pathlib import Path
 import csv
 import json
-import logging
 import os
 import pickle
 import random
 import time
 
-# from shutil import copyfile
-
-import consts
 
 import numpy as np
 from tqdm import tqdm
@@ -43,25 +38,18 @@ from torch.utils.data import (
     SequentialSampler,
 )
 
+import consts
 import modeling
 from optimization import get_optimizer
-from utils import auto_tokenizer
-
+from utils import auto_tokenizer, dump_json, get_output_dir
 from mrc.tools import official_tokenization as tokenization
-from mrc.tools import utils
+# from mrc.tools import utils
 
 
 # Contants for C3
 NUM_CHOICES = 4  # 数据集里不一定有四个选项，但是会手动加 “无效答案” 至4个
 REVERSE_ORDER = False
 SA_STEP = False
-
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
-    datefmt="%m/%d/%Y %H:%M:%S",
-    level=logging.INFO,
-)
-logger = logging.getLogger(__name__)
 
 
 class InputExample(object):
@@ -71,9 +59,11 @@ class InputExample(object):
         """Constructs a InputExample.
         Args:
             guid: Unique id for the example.
-            text_a: string. The untokenized text of the first sequence. For single
+            text_a: string. The untokenized text of the first sequence.
+            For single
             sequence tasks, only this sequence must be specified.
-            text_b: (Optional) string. The untokenized text of the second sequence.
+            text_b: (Optional) string. The untokenized text of the second
+            sequence.
             Only must be specified for sequence pair tasks.
             label: (Optional) string. The label of the example. This should be
             specified for train and dev examples, but not for test examples.
@@ -146,7 +136,7 @@ class c3Processor(DataProcessor):
                 filename = self.data_dir + "/" + subtask + "-" + files[sid]
                 with open(filename, "r", encoding="utf8") as f:
                     data += json.load(f)
-            logger.info(
+            print(
                 'Loaded {} examples from "{}"'.format(len(data), filename)
             )
             if sid == 0:
@@ -273,17 +263,13 @@ def convert_examples_to_features(
 
         label_id = label_map[example.label]
         if ex_index < 1:
-            logger.info("*** Example ***")
-            logger.info("guid: %s" % (example.guid))
-            logger.info(
+            print("*** Example ***")
+            print("guid: %s" % (example.guid))
+            print(
                 "tokens: %s"
-                % " ".join([tokenization.printable_text(x) for x in tokens])
+                % " ".join([tokenization.printable_text(x) for x in tokens]),
+                flush=True,
             )
-        #     logger.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
-        #     logger.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
-        #     logger.info(
-        #         "segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
-        #     logger.info("label: %s (id = %d)" % (example.label, label_id))
 
         features[-1].append(
             InputFeatures(
@@ -305,7 +291,8 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
     """Truncates a sequence pair in place to the maximum length."""
 
     # This is a simple heuristic which will always truncate the longer sequence
-    # one token at a time. This makes more sense than truncating an equal percent
+    # one token at a time. This makes more sense than truncating an equal
+    # percent
     # of tokens from each, since if one sequence is very short then each token
     # that's truncated likely contains more information than a longer sequence.
     while True:
@@ -322,7 +309,8 @@ def _truncate_seq_tuple(tokens_a, tokens_b, tokens_c, max_length):
     """Truncates a sequence tuple in place to the maximum length."""
 
     # This is a simple heuristic which will always truncate the longer sequence
-    # one token at a time. This makes more sense than truncating an equal percent
+    # one token at a time. This makes more sense than truncating an equal
+    # percent
     # of tokens from each, since if one sequence is very short then each token
     # that's truncated likely contains more information than a longer sequence.
     while True:
@@ -350,10 +338,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--data_dir", required=True)
     p.add_argument("--output_dir", required=True)
     p.add_argument("--tokenizer_name", required=True)
-    # parser.add_argument('--tokenizer_type', required=True)
-    # parser.add_argument('--vocab_file', required=True)
-    # parser.add_argument('--vocab_model_file', required=True)
-    # p.add_argument('--cws_vocab_file', default='')
     p.add_argument("--config_file", required=True)
     p.add_argument("--init_ckpt", required=True)
 
@@ -406,11 +390,11 @@ def get_features(
 
     if data_type != "test" and os.path.exists(file_feature):
         # if False:
-        logger.info('Loading features from "' + file_feature + '"...')
+        print('Loading features from "' + file_feature + '"...')
         features = pickle.load(open(file_feature, "rb"))
-        logger.info("Loaded {} features.".format(len(features)))
+        print("Loaded {} features.".format(len(features)))
     else:
-        logger.info(
+        print(
             "Converting {} examples into features...".format(len(examples))
         )
         features = convert_examples_to_features(
@@ -418,19 +402,19 @@ def get_features(
         )
         with open(file_feature, "wb") as w:
             pickle.dump(features, w)
-        logger.info(
+        print(
             'Saved {} features to "{}".'.format(len(features), file_feature)
         )
     return features
 
 
-def get_device(args):
+def get_device(args) -> str:
     if torch.cuda.is_available():
-        return torch.device("cuda")  # Only one gpu
-        free_gpu = get_freer_gpu()
-        return torch.device("cuda", free_gpu)
+        return "cuda"  # Only one gpu
+        # free_gpu = get_freer_gpu()
+        # return torch.device("cuda", free_gpu)
     else:
-        return torch.device("cpu")
+        return "cpu"
 
 
 def load_model_and_config(config_file, model_file, num_choices):
@@ -537,32 +521,24 @@ def evaluate(model, dataloader, device):
 def train(args):
     device = get_device(args)
     n_gpu = torch.cuda.device_count()
-    logger.info("Device: " + str(device))
-    logger.info("Num gpus: " + str(n_gpu))
+    print("Device: " + str(device))
+    print("Num gpus: " + str(n_gpu))
 
     # Output files
-    output_dir = Path(args.output_dir, str(args.seed))
-    os.makedirs(output_dir, exist_ok=True)
+    output_dir = get_output_dir(args)
+    output_dir.mkdir(exist_ok=True, parents=True)
 
-    filename_scores = os.path.join(output_dir, "scores.txt")
-    filename_params = output_dir / "params.json"
     print(json.dumps(vars(args), indent=4), flush=True)
-    json.dump(vars(args), open(filename_params, "w"), indent=4)
-
-    # Init file for logging scores
-    with open(filename_scores, "w") as f:
-        f.write(
-            "\t".join(["epoch", "train_loss", "dev_loss", "dev_acc"]) + "\n"
-        )
+    dump_json(vars(args), output_dir / "params.json")
 
     # Processor
-    logger.info("Loading processor...")
+    print("Loading processor...")
     processor = c3Processor(args.data_dir, do_train=True, do_eval=True)
     label_list = processor.get_labels()
 
     # Tokenizer
-    logger.info("Loading tokenizer...")
-    logger.info(
+    print("Loading tokenizer...")
+    print(
         "vocab file={}, vocab_model_file={}".format(
             args.vocab_file, args.vocab_model_file
         )
@@ -572,31 +548,29 @@ def train(args):
     real_tokenizer_type = args.output_dir.split(os.path.sep)[-2]
 
     # Prepare Model
-    logger.info('Loading model from checkpoint "{}"...'.format(args.init_ckpt))
+    print('Loading model from checkpoint "{}"...'.format(args.init_ckpt))
     model, config = load_model_and_config(
         args.config_file, args.init_ckpt, NUM_CHOICES
     )
 
     if args.max_seq_length > config.max_position_embeddings:
         raise ValueError(
-            "Cannot use sequence length {} because the BERT model was only trained up to sequence length {}".format(
+            "Cannot use sequence length {} because the BERT model was"
+            "only trained up to sequence length {}".format(
                 args.max_seq_length, config.max_position_embeddings
             )
         )
 
     # Save config file
-    logger.info("Saving config file...")
-    model_to_save = model.module if hasattr(model, "module") else model
-    filename_config = os.path.join(output_dir, modeling.FILENAME_CONFIG)
-    with open(filename_config, "w") as f:
-        f.write(model_to_save.config.to_json_string())
+    print("Saving config file...")
+    config_file = os.path.join(output_dir, "model_config.json")
+    with open(config_file, "w") as f:
+        f.write(model.config.to_json_string())
 
     # Load training data
-    logger.info("Loading training data...")
+    print("Loading training data...")
     train_examples = processor.get_train_examples()
-    actual_batch_size = int(
-        args.train_batch_size / args.grad_acc_steps
-    )
+    actual_batch_size = int(args.train_batch_size / args.grad_acc_steps)
     num_train_steps = args.epochs * int(
         len(train_examples) / NUM_CHOICES / actual_batch_size
     )
@@ -615,24 +589,23 @@ def train(args):
     )  # multi_choice must update pooler
 
     # Load eval data
-    if args.do_eval:
-        logger.info("Loading eval data...")
-        eval_examples = processor.get_dev_examples()
-        eval_features = get_features(
-            eval_examples,
-            "eval",
-            args.data_dir,
-            args.max_seq_length,
-            tokenizer,
-            real_tokenizer_type,
-            config.vocab_size,
-            label_list,
-        )
-        eval_data = features_to_dataset(eval_features, NUM_CHOICES)
-        eval_sampler = SequentialSampler(eval_data)
-        eval_dataloader = DataLoader(
-            eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size
-        )
+    print("Loading eval data...", flush=True)
+    eval_examples = processor.get_dev_examples()
+    eval_features = get_features(
+        eval_examples,
+        "eval",
+        args.data_dir,
+        args.max_seq_length,
+        tokenizer,
+        real_tokenizer_type,
+        config.vocab_size,
+        label_list,
+    )
+    eval_data = features_to_dataset(eval_features, NUM_CHOICES)
+    eval_sampler = SequentialSampler(eval_data)
+    eval_dataloader = DataLoader(
+        eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size
+    )
 
     train_features = get_features(
         train_examples,
@@ -654,17 +627,17 @@ def train(args):
     )
     model.to(device)
 
-    logger.info("***** Running training *****")
-    logger.info("  Num epochs = %d", args.epochs)
-    logger.info("  Num train examples = %d", len(train_examples))
-    logger.info("  Num train features = %d", len(train_features))
-    logger.info("  Num eval examples = %d", len(eval_examples))
-    logger.info("  Num eval features = %d", len(eval_features))
-    logger.info("  Train batch size = %d", args.train_batch_size)
-    logger.info("  Eval batch size = %d", args.eval_batch_size)
-    logger.info("  Num steps = %d", num_train_steps)
-    logger.info("  Grad acc steps = %d", args.grad_acc_steps)
-    logger.info("****************************")
+    print("***** Running training *****")
+    print("  # epochs = %d", args.epochs)
+    print("  # train examples = %d", len(train_examples))
+    print("  # train features = %d", len(train_features))
+    print("  # eval examples = %d", len(eval_examples))
+    print("  # eval features = %d", len(eval_features))
+    print("  Train batch size = %d", args.train_batch_size)
+    print("  Eval batch size = %d", args.eval_batch_size)
+    print("  Num steps = %d", num_train_steps)
+    print("  Grad acc steps = %d", args.grad_acc_steps)
+    print("****************************", flush=True)
 
     # Start timer
     start_time = time.time()
@@ -702,78 +675,58 @@ def train(args):
         train_loss = total_loss / (n_train_steps + 1e-8)
 
         # Evaluation
-        if args.do_eval:
-            logger.info("***** Running Evaluation *****")
-            logits_all, eval_acc, eval_loss = evaluate(
-                model, eval_dataloader, device
-            )
-            eval_acc_history.append(eval_acc)
-            eval_loss_history.append(eval_loss)
-            train_loss_history.append(train_loss)
+        ckpt_dir = output_dir / f"ckpt-{ep}"
+        ckpt_dir.mkdir(exist_ok=True)
 
-            result = {
-                "eval_loss": eval_loss,
-                "eval_acc": eval_acc,
-                "train_steps": n_train_steps,
-                "train_loss": train_loss,
-            }
-            logger.info("***** Eval results *****")
-            for key in sorted(result.keys()):
-                logger.info("  %s = %s", key, str(result[key]))
-            logger.info("  Epoch = {}".format(ep))
-            logger.info("************************")
+        print("***** Running Evaluation *****")
+        logits_all, eval_acc, eval_loss = evaluate(
+            model, eval_dataloader, device
+        )
+        eval_acc_history.append(eval_acc)
+        eval_loss_history.append(eval_loss)
+        train_loss_history.append(train_loss)
+        result = {
+            "eval_loss": eval_loss,
+            "eval_acc": eval_acc,
+            "train_steps": n_train_steps,
+            "train_loss": train_loss,
+        }
+        print(result)
+        dump_json(result, ckpt_dir / "result.json")
 
-            # Log results to scores file
-            with open(filename_scores, "a") as f:
-                f.write(
-                    "{}\t{}\t{}\t{}\n".format(
-                        ep, train_loss, eval_loss, eval_acc
-                    )
-                )
-
-        # Save model if it's best on dev set
-        if args.do_eval:
-            if len(eval_acc_history) == 0 or eval_acc_history[-1] == max(
-                eval_acc_history
-            ):
-                model_to_save = (
-                    model.module if hasattr(model, "module") else model
-                )
-                # dir_model = os.path.join(output_dir, 'models')
-                # os.makedirs(dir_model, exist_ok=True)
-                # filename_model = os.path.join(dir_model, 'model_epoch_' + str(ep) + '.bin')
-                # filename_model = os.path.join(output_dir, 'model_epoch_' + str(ep) + '.bin')
-                filename_model = os.path.join(
-                    output_dir, modeling.FILENAME_BEST_MODEL
-                )
-                torch.save(
-                    {"model": model_to_save.state_dict()},
-                    filename_model,
-                )
-                # copyfile(filename_model, filename_best_model)
-                logger.info("New best model saved")
-
-    logger.info("Training finished")
-
+        # Log results to scores file
+        scores = [
+            {
+                "epoch": ep,
+                "train_loss": train_loss_history[ep],
+                "eval_loss": eval_loss_history[ep],
+                "eval_acc": eval_acc_history[ep],
+            } for ep in range(len(train_loss_history))
+        ]
+        dump_json(scores, output_dir / "scores.json")
+        ckpt_file = ckpt_dir / "model.pt"
+        print(f"Saving model to {ckpt_file}", flush=True)
+        torch.save({"model": model.state_dict()}, ckpt_file)
+    print("Training finished", flush=True)
     # Log time to file
     save_time(start_time, output_dir)
 
 
 def test(args):
     # Output files
-    output_dir = os.path.join(args.output_dir, str(args.seed))
+    output_dir = get_output_dir(args)
     os.makedirs(output_dir, exist_ok=True)
-    logger.info(json.dumps(vars(args), indent=4))
+    print(json.dumps(vars(args), indent=4))
 
     device = get_device(args)
     n_gpu = torch.cuda.device_count()
-    logger.info("Device: " + str(device))
-    logger.info("Num gpus: " + str(n_gpu))
+    print("Device: " + str(device))
+    print("Num gpus: " + str(n_gpu))
 
     batch_size = args.eval_batch_size
 
     # Tokenizer and processor
-    logger.info("Loading tokenizer...")
+    print("Loading tokenizer...", flush=True)
     tokenizer = auto_tokenizer(args)
 
     # Load model
@@ -783,14 +736,10 @@ def test(args):
         filename_best_model = os.path.join(
             output_dir, modeling.FILENAME_BEST_MODEL
         )
-    if args.config_file is not None and len(args.config_file) > 0:
-        filename_config = args.config_file
-    else:
-        filename_config = os.path.join(output_dir, modeling.FILENAME_CONFIG)
 
-    logger.info('Loading model from "{}"...'.format(filename_best_model))
+    print('Loading model from "{}"...'.format(filename_best_model))
     model, config = load_model_and_config(
-        filename_config, filename_best_model, NUM_CHOICES
+        args.config_file, filename_best_model, NUM_CHOICES
     )
 
     # Sanity checks
@@ -805,10 +754,10 @@ trained up to sequence length {}".format(
     real_tokenizer_type = args.output_dir.split(os.path.sep)[-2]
 
     # Load test data
-    logger.info("Loading processor...")
+    print("Loading processor...")
     processor = c3Processor(args.data_dir, do_test=True)
     label_list = processor.get_labels()
-    logger.info("Loading test data...")
+    print("Loading test data...")
     examples = processor.get_examples()
     examples = processor.get_examples()
     features = get_features(
@@ -825,10 +774,10 @@ trained up to sequence length {}".format(
     sampler = SequentialSampler(test_data)
     dataloader = DataLoader(test_data, sampler=sampler, batch_size=batch_size)
 
-    logger.info("***** Running testing *****")
-    logger.info("  Num examples = {}".format(len(examples)))
-    logger.info("  Num features = {}".format(len(features)))
-    logger.info("  Batch size   = {}".format(batch_size))
+    print("***** Running testing *****")
+    print("  Num examples = {}".format(len(examples)))
+    print("  Num features = {}".format(len(features)))
+    print("  Batch size   = {}".format(batch_size))
 
     # Execute testing
     logits_all, acc, loss = evaluate(model, dataloader, device)
@@ -838,19 +787,19 @@ trained up to sequence length {}".format(
 
     result_test_file = os.path.join(output_dir, consts.FILENAME_TEST_RESULT)
     with open(result_test_file, "w") as f:
-        logger.info("***** Test results *****")
+        print("***** Test results *****")
         for key in sorted(result.keys()):
-            logger.info("  %s = %s", key, str(result[key]))
+            print("  %s = %s", key, str(result[key]))
             f.write("%s = %s\n" % (key, str(result[key])))
-        logger.info("************************")
+        print("************************")
 
     # Save logits to file
-    logger.info("Saving to logits_test.txt")
+    print("Saving to logits_test.txt")
     file_logits = os.path.join(output_dir, "logits_test.txt")
     save_logits(logits_all, file_logits)
 
     # Save to submission file
-    logger.info("Saving predictions to submission_test.json")
+    print("Saving predictions to submission_test.json")
     save_submission(logits_all, output_dir)
 
     print("Testing finished")

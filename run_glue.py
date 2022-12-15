@@ -32,7 +32,13 @@ import consts
 import modeling
 from optimization import BertAdam
 from schedulers import LinearWarmUpScheduler
-from utils import is_main_process, auto_tokenizer, set_seed
+from utils import (
+    is_main_process,
+    auto_tokenizer,
+    set_seed,
+    dump_json,
+    get_output_dir,
+)
 from processors.glue import PROCESSORS, convert_examples_to_features
 from run_pretraining import pretraining_dataset, WorkerInitObj
 
@@ -274,8 +280,8 @@ def evaluate(
     loss_fct = torch.nn.CrossEntropyLoss()
 
     print("*** Start evaluating ***")
-    print(f'# of examples: {len(dataset)}')
-    print(f'# steps: {len(dataloader)}')
+    print(f"# of examples: {len(dataset)}")
+    print(f"# steps: {len(dataloader)}")
     print(f"batch size: {batch_size}")
 
     total_loss = 0
@@ -357,14 +363,6 @@ def get_datasets(tokenizer, args, processor):
     return train_data, dev_data
 
 
-def get_output_dir(args: argparse.Namespace) -> Path:
-    assert args.output_dir is not None
-    return Path(
-        args.output_dir, 
-        f'seed{args.seed}_lr{args.lr}_ep{args.epochs}',
-    )
-
-
 def train(args):
     device = get_device()
     n_gpu = torch.cuda.device_count()
@@ -378,7 +376,7 @@ def train(args):
 
     # Setup output files
     output_dir = get_output_dir(args)
-    json.dump(vars(args), open(output_dir / "args_train.json", "w"), indent=2)
+    dump_json(vars(args), output_dir / "args_train.json")
 
     # Load data
     print("Getting training features...")
@@ -512,11 +510,9 @@ def train(args):
                 ckpt_file = ckpt_dir / "model.pt"
                 print(f"Saving model to {ckpt_file}")
                 torch.save({"model": model.state_dict()}, ckpt_file)
-                json.dump(
+                dump_json(
                     {k: eval_result[k] for k in ["acc", "loss", "f1"]},
-                    open(ckpt_dir / "result.json", "w"),
-                    indent=2,
-                    ensure_ascii=False,
+                    ckpt_dir / "result.json",
                 )
 
     print("*** Training finished ***")
@@ -528,14 +524,14 @@ def get_best_ckpt(
     metric_name: str = "acc",
     metric_maximize: bool = True,
 ) -> Path:
-    '''
+    """
     Get the best checkpoint from the output directory. This loops through
     "ckpt-*" subdirectories and returns the one with the least loss.
-    '''
+    """
     if metric_maximize:
-        best_metric = float('-inf')
+        best_metric = float("-inf")
     else:
-        best_metric = float('inf')
+        best_metric = float("inf")
     best_ckpt_dir = None
     ckpt_dirs = sorted(output_dir.glob("ckpt-*"))
     assert len(ckpt_dirs) > 0, "No checkpoints found"
@@ -571,7 +567,7 @@ def test(args):
     if args.test_model:
         best_model_filename = args.test_model
     else:
-        print(f'Getting best checkpoint from {output_dir.parent}')
+        print(f"Getting best checkpoint from {output_dir.parent}")
         best_model_filename = get_best_ckpt(output_dir.parent)
     print('Loading model from "{}"...'.format(best_model_filename))
     model = load_model(args.config_file, best_model_filename, num_labels)
@@ -613,7 +609,7 @@ def test(args):
 
 
 def main(args):
-    print('====== START ======')
+    print("====== START ======")
     print("Arguments:")
     print(json.dumps(vars(args), indent=4), flush=True)
 
@@ -624,7 +620,7 @@ def main(args):
     json.dump(vars(args), open(filename_params, "w"), indent=4)
 
     if "train" in args.mode:
-        print('train')
+        print("train")
         train(args)
     if "test" in args.mode:
         test(args)
