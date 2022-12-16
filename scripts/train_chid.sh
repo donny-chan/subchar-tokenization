@@ -1,7 +1,6 @@
 #!/bin/bash
 
-task="ocnli"
-
+task="chid"
 data_dir="/home/chenyingfa/subchar-tokenization/data/${task}/split"
 test_dir="/home/chenyingfa/subchar-tokenization/data/${task}/split"
 test_name="test"
@@ -31,16 +30,13 @@ output_dir="result/${task}/${model_name}_12l_20g_new_24585"
 # 20G models (restart)
 model_name="char"
 ckpt_step="23985"
-model_name="pinyin"
-ckpt_step="23984"
+# model_name="pinyin"
+# ckpt_step="23984"
 ckpt="${model_dir}/ckpts_12l_restart/${model_name}/ckpt_${ckpt_step}.pt"
-output_dir="result/${task}/${model_name}_12l_restart_${ckpt_step}"
-
-# output_dir="result/${task}/${model_name}_12l_restart"
+output_dir="result/chid/${model_name}_12l_restart_${ckpt_step}"
 seed="0"
 
-cmd="python3 run_glue.py"
-cmd+=" --task_name ${task}"
+cmd="python3 run_chid.py"
 cmd+=" --data_dir=${data_dir}"
 cmd+=" --train_file=${data_dir}/train.json"
 cmd+=" --train_ans_file=${data_dir}/train_answer.json"

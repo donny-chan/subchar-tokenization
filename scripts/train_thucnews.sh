@@ -32,15 +32,13 @@ output_dir="result/${task}/${model_name}_12l_20g_new_24585"
 
 # 20G models (restart)
 model_name="char"
-ckpt_step="23985"
+# ckpt_step="23985"
 # model_name="pinyin"
 # ckpt_step="23984"
+ckpt_step="18000"
 ckpt="${model_dir}/ckpts_12l_restart/${model_name}/ckpt_${ckpt_step}.pt"
 output_dir="result/${task}/${model_name}_12l_restart_${ckpt_step}"
 
-
-# output_dir="result/${task}/${model_name}_12l_restart"
-seed="0"
 
 cmd="python3 run_glue.py"
 cmd+=" --task_name ${task}"
@@ -55,10 +53,9 @@ cmd+=" --config_file configs/bert_config_vocab22675.json"
 cmd+=" --epochs 6"
 cmd+=" --lr 3e-5"
 cmd+=" --train_batch_size 64"
-cmd+=" --seed ${seed}"
+cmd+=" --seed 0"
 cmd+=" --test_name ${test_name}"
 # cmd+=" --tokenize_char_by_char"
 
 logfile="${output_dir}/train.log"
-
 $cmd | tee logfile

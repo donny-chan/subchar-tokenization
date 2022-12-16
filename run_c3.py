@@ -33,13 +33,11 @@ from torch.utils.data import (
     SequentialSampler,
 )
 
-import consts
 import modeling
 from optimization import get_optimizer
 from utils import auto_tokenizer, dump_json, get_output_dir
 from mrc.tools import official_tokenization as tokenization
 from run_pretraining import pretraining_dataset, WorkerInitObj
-# from mrc.tools import utils
 
 
 # Contants for C3
@@ -509,7 +507,7 @@ def evaluate(model, dataloader, device):
 
 def get_best_ckpt(
     output_dir: Path,
-    metric_name: str = "acc",
+    metric_name: str = "eval_acc",
     metric_maximize: bool = True,
 ) -> Path:
     '''
@@ -538,7 +536,6 @@ def get_best_ckpt(
     return best_ckpt_dir / "model.pt"
 
 
-
 def train(args):
     device = get_device(args)
     n_gpu = torch.cuda.device_count()
@@ -559,9 +556,7 @@ def train(args):
 
     # Tokenizer
     print("Loading tokenizer...")
-    # tokenizer = load_tokenizer(args)
     tokenizer = auto_tokenizer(args.tokenizer_name)
-    real_tokenizer_type = args.output_dir.split(os.path.sep)[-2]
 
     # Prepare Model
     print(f'Loading model from checkpoint "{args.init_ckpt}"...')
@@ -613,7 +608,7 @@ def train(args):
         args.data_dir,
         args.max_seq_length,
         tokenizer,
-        real_tokenizer_type,
+        args.tokenizer_name,
         config.vocab_size,
         label_list,
     )
@@ -629,7 +624,7 @@ def train(args):
         args.data_dir,
         args.max_seq_length,
         tokenizer,
-        real_tokenizer_type,
+        args.tokenizer_name,
         config.vocab_size,
         label_list,
     )
@@ -727,9 +722,8 @@ def train(args):
 
 
 def test(args):
-    # Output files
     output_dir = get_output_dir(args) / args.test_name
-    os.makedirs(output_dir, exist_ok=True, parents=True)
+    output_dir.mkdir(exist_ok=True, parents=True)
     print(json.dumps(vars(args), indent=4))
 
     device = get_device(args)
@@ -741,7 +735,7 @@ def test(args):
 
     # Tokenizer and processor
     print("Loading tokenizer...", flush=True)
-    tokenizer = auto_tokenizer(args)
+    tokenizer = auto_tokenizer(args.tokenizer_name)
 
     # Load model
     best_ckpt_file = get_best_ckpt(output_dir.parent)
@@ -766,8 +760,6 @@ trained up to sequence length {}".format(
         raise ValueError(msg)
     model.to(device)
 
-    real_tokenizer_type = args.output_dir.split(os.path.sep)[-2]
-
     # Load test data
     print("Loading processor...")
     processor = c3Processor(args.data_dir, do_test=True)
@@ -781,7 +773,7 @@ trained up to sequence length {}".format(
         args.data_dir,
         args.max_seq_length,
         tokenizer,
-        real_tokenizer_type,
+        args.tokenizer_name,
         config.vocab_size,
         label_list,
     )
@@ -799,14 +791,14 @@ trained up to sequence length {}".format(
 
     # Save results
     result = {"test_loss": loss, "test_acc": acc}
-
-    result_test_file = os.path.join(output_dir, consts.FILENAME_TEST_RESULT)
-    with open(result_test_file, "w") as f:
-        print("***** Test results *****")
-        for key in sorted(result.keys()):
-            print("  %s = %s", key, str(result[key]))
-            f.write("%s = %s\n" % (key, str(result[key])))
-        print("************************")
+    dump_json(result, output_dir / "result.json")
+    # result_test_file = os.path.join(output_dir, consts.FILENAME_TEST_RESULT)
+    # with open(result_test_file, "w") as f:
+    #     print("***** Test results *****")
+    #     for key in sorted(result.keys()):
+    #         print("  %s = %s", key, str(result[key]))
+    #         f.write("%s = %s\n" % (key, str(result[key])))
+    #     print("************************")
 
     # Save logits to file
     print("Saving to logits_test.txt")

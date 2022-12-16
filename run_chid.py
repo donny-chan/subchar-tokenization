@@ -22,8 +22,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-from __future__ import print_function
-
+from pathlib import Path
 import argparse
 import os
 import pickle
@@ -40,10 +39,8 @@ from torch.utils.data import (
 )
 from tqdm import tqdm
 
-import consts
 import modeling
 from optimization import BertAdam, warmup_linear, get_optimizer
-from schedulers import LinearWarmUpScheduler
 from utils import (
     get_device,
     auto_tokenizer,
@@ -160,6 +157,8 @@ def reset_model(args, bert_config, model_cls):
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
+    p.add_argument("--tokenizer_name", required=True)
+    p.add_argument("--config_file", required=True)
     # p.add_argument("--config_file", type=str, required=True)
     # p.add_argument("--vocab_file", type=str, required=True)
     # p.add_argument("--vocab_model_file", type=str, required=True)
@@ -381,25 +380,17 @@ def load_or_gen_features(
 
 def train(args):
     # Manage output files
-    output_dir = os.path.join(args.output_dir, str(args.seed))
-    filename_scores = os.path.join(output_dir, "scores.txt")
+    output_dir = Path(args.output_dir, str(args.seed))
     os.makedirs(output_dir, exist_ok=True)
 
-    print("Arguments:")
     print(json.dumps(vars(args), indent=4))
     filename_params = os.path.join(output_dir, "params.json")
-    json.dump(vars(args), open(filename_params, "w"), indent=4)
+    dump_json(vars(args), output_dir / "params.json")
 
     device = get_device()
     n_gpu = torch.cuda.device_count()
-    print(
-        "device: {} n_gpu: {}, 16-bits training: {}".format(
-            device, n_gpu, args.fp16
-        )
-    )
-
+    print("device: {} n_gpu: {}".format(device, n_gpu))
     args.train_batch_size = int(args.train_batch_size / args.grad_acc_steps)
-
     utils.set_seed(args.seed)
 
     # Prepare model
@@ -421,14 +412,12 @@ def train(args):
     # tokenizer = ALL_TOKENIZERS[args.tokenizer_type](
     #     args.vocab_file, args.vocab_model_file
     # )
-    # real_tokenizer_type = output_dir_to_tokenizer_name(args.output_dir)
+    # args.tokenizer_name = output_dir_to_tokenizer_name(args.output_dir)
     print("Loaded tokenizer")
 
     # Save config
-    model_to_save = model.module if hasattr(model, "module") else model
-    filename_config = os.path.join(output_dir, modeling.CONFIG_NAME)
-    with open(filename_config, "w") as f:
-        f.write(model_to_save.config.to_json_string())
+    with open(output_dir / "model_config.json", "w", encoding="utf8") as f:
+        f.write(model.config.to_json_string())
 
     # Generate (or load) train features
     (
@@ -438,7 +427,8 @@ def train(args):
         "train",
         args.data_dir,
         args.max_seq_length,
-        real_tokenizer_type,
+        # args.tokenizer_name,
+        args.tokenizer_name,
         config.vocab_size,
     )
     print("Loading train input...")
@@ -487,7 +477,7 @@ def train(args):
         "dev",
         args.data_dir,
         args.max_seq_length,
-        real_tokenizer_type,
+        args.tokenizer_name,
         config.vocab_size,
     )
 
@@ -673,12 +663,14 @@ def train(args):
         train_loss = total_train_loss / (num_step + 1e-5)
         train_loss_history.append(train_loss)
 
-        with open(filename_scores, "w") as f:
-            f.write("epoch\ttrain_loss\tdev_acc\n")
-            for i in range(ep + 1):
-                train_loss = train_loss_history[i]
-                dev_acc = dev_acc_history[i]
-                f.write(f"{i}\t{train_loss}\t{dev_acc}\n")
+        scores = [
+            {
+                "epoch": ep,
+                "train_loss": train_loss_history[ep],
+                "dev_acc": dev_acc_history[ep],
+            } for ep in range(len(train_loss_history))
+        ]
+        dump_json(scores, output_dir / "scores.json")
 
         # Save model
         model_to_save = model.module if hasattr(model, "module") else model
@@ -748,10 +740,6 @@ def test(args):
     # Tokenizer
     print("Loading tokenizer...")
     tokenizer = auto_tokenizer(args.tokenizer_name)
-    # tokenizer = ALL_TOKENIZERS[args.tokenizer_type](
-    #     args.vocab_file, args.vocab_model_file
-    # )
-    real_tokenizer_type = args.output_dir.split(os.path.sep)[-2]
     print("Loaded tokenizer")
 
     # Load test data
@@ -762,7 +750,7 @@ def test(args):
         "test",
         args.data_dir,
         args.max_seq_length,
-        real_tokenizer_type,
+        args.tokenizer_name,
         config.vocab_size,
     )
     print(f'  file_examples: "{file_examples}"')
