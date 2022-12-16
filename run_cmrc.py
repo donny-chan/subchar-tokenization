@@ -129,11 +129,12 @@ def evaluate(
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
 
-    # Hyperparameters
+    # 
     p.add_argument("--output_dir", type=str, default="logs/temp")
-    p.add_argument("--tokenizer_name", required=True)
-    p.add_argument("--config_file", type=str, required=True)
 
+    # Model settings
+    p.add_argument("--config_file", type=str, required=True)
+    p.add_argument("--tokenizer_name", required=True)
     p.add_argument("--max_ans_length", type=int, default=50)
     p.add_argument("--n_best", type=int, default=20)
     p.add_argument("--max_seq_length", type=int, default=512)
@@ -143,15 +144,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--dropout", type=float, default=0.1)
     p.add_argument("--clip_norm", type=float, default=1.0)
     p.add_argument("--warmup_rate", type=float, default=0.05)
-    p.add_argument(
-        "--schedule", default="warmup_linear", type=str, help="schedule"
-    )
-    p.add_argument(
-        "--weight_decay_rate",
-        default=0.01,
-        type=float,
-        help="weight_decay_rate",
-    )
+    p.add_argument("--schedule", default="warmup_linear")
+    p.add_argument("--weight_decay_rate", default=0.01, type=float)
     p.add_argument("--epochs", type=int, default=6)
     p.add_argument("--batch_size", type=int, default=32)
     p.add_argument("--grad_acc_steps", type=int, default=2)
@@ -159,19 +153,14 @@ def parse_args() -> argparse.Namespace:
 
     p.add_argument("--train_dir")
     p.add_argument("--dev_dir")
-    p.add_argument("--do_train", action="store_true")
     p.add_argument("--init_ckpt")
-    # p.add_argument('--tokenizer_type', type=str, required=True)
-    # p.add_argument('--vocab_file', type=str, required=True)
-    # p.add_argument('--vocab_model_file', type=str, required=True)
-    # p.add_argument('--cws_vocab_file', type=str, default=None)
     p.add_argument("--two_level_embeddings", action="store_true")
     p.add_argument("--avg_char_tokens", action="store_true")
 
     # Test args
-    p.add_argument("--do_test", action="store_true")
+    p.add_argument("--mode", required=True)
     p.add_argument("--test_dir")
-    p.add_argument("--test_name", default="test_clean")
+    p.add_argument("--test_name", default="test")
     p.add_argument("--test_ckpt")
     p.add_argument("--log_interval", type=int)
 
@@ -344,7 +333,7 @@ def expand_batch(
         )
 
 
-def get_filename_examples_and_features(
+def get_cache_files(
     data_type: str,
     data_dir: str,
     args: argparse.Namespace,
@@ -506,27 +495,23 @@ def train(args: argparse.Namespace) -> None:
 
     # Because tokenizer_type is a part of the feature file name,
     # new features will be generated for every tokenizer type.
-    # tokenizer_name = output_dir_to_tokenizer_name(args.output_dir)
-    file_train = Path(args.train_dir, "train.json")
-    file_dev = Path(args.dev_dir, "dev.json")
-    (
-        file_train_examples,
-        file_train_features,
-    ) = get_filename_examples_and_features(
+    train_file = Path(args.train_dir, "train.json")
+    dev_file = Path(args.dev_dir, "dev.json")
+    train_examples_files, train_features_file = get_cache_files(
         "train", args.train_dir, args, tokenizer_name=args.tokenizer_name
     )
-    file_dev_examples, file_dev_features = get_filename_examples_and_features(
+    dev_examples_file, dev_features_file = get_cache_files(
         "dev", args.dev_dir, args, tokenizer_name=args.tokenizer_name
     )
     # Generate train examples and features
     print("Generating train data:")
-    print(f"  file_examples: {file_train_examples}")
-    print(f"  file_features: {file_train_features}")
+    print(f"  file_examples: {train_examples_files}")
+    print(f"  file_features: {train_features_file}")
 
     train_examples, train_features = gen_examples_and_features(
-        file_train,
-        file_train_examples,
-        file_train_features,
+        train_file,
+        train_examples_files,
+        train_features_file,
         is_training=True,
         tokenizer=tokenizer,
         max_seq_length=args.max_seq_length,
@@ -535,12 +520,12 @@ def train(args: argparse.Namespace) -> None:
         num_examples=args.num_examples,
     )
     print("Generating dev data:")
-    print(f"  file_examples: {file_dev_examples}")
-    print(f"  file_features: {file_dev_features}")
+    print(f"  file_examples: {dev_examples_file}")
+    print(f"  file_features: {dev_features_file}")
     dev_examples, dev_features = gen_examples_and_features(
-        file_dev,
-        file_dev_examples,
-        file_dev_features,
+        dev_file,
+        dev_examples_file,
+        dev_features_file,
         is_training=False,
         tokenizer=tokenizer,
         max_seq_length=args.max_seq_length,
@@ -548,7 +533,7 @@ def train(args: argparse.Namespace) -> None:
         avg_char_tokens=args.avg_char_tokens,
     )
     del train_examples  # Only need examples for predictions
-    print("Done generating data")
+    print("Done generating data", flush=True)
 
     update_size = args.batch_size * args.grad_acc_steps
     steps_per_ep = len(train_features) // args.batch_size
@@ -713,7 +698,6 @@ def test(args):
     device = get_device()  # Get gpu with most free RAM
     n_gpu = torch.cuda.device_count()
     print("device: {} n_gpu: {}".format(device, n_gpu))
-
     print("SEED: " + str(args.seed))
     set_seed(args.seed)
 
@@ -727,13 +711,11 @@ def test(args):
 
     # Tokenizer
     tokenizer = auto_tokenizer(args.tokenizer_name)
-    # tokenizer = load_tokenizer(
-    #     args.tokenizer_type, args.vocab_file, args.vocab_model_file)
 
     # Because tokenizer_type is a part of the feature file name,
     # new features will be generated for every tokenizer type.
     file_data = data_dir / "test.json"
-    file_examples, file_features = get_filename_examples_and_features(
+    file_examples, file_features = get_cache_files(
         "test", data_dir, args, tokenizer_name=args.tokenizer_name
     )
     # Generate train examples and features
@@ -779,9 +761,9 @@ def main(args):
     assert args.batch_size > 0
     assert args.epochs > 0
 
-    if args.do_train:
+    if "train" in args.mode:
         train(args)
-    if args.do_test:
+    if "test" in args.mode:
         test(args)
     print("DONE", flush=True)
 
